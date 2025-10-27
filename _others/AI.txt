@@ -1,0 +1,159 @@
+Contexts:
+- I am a developer building new software using a custom LCNC framework called FoXYiZ.
+- I am an SAP Analyst automating workflows and integrating SAP APIs with AI.
+- I want to automate complex math operations and test them with FoXYiZ.
+- I want to automate UI workflows for web apps (e.g., login, navigation, data entry).
+- I want to automate daily tasks like getting weather, news, commute info, currency rates, and live sports scores.
+- I want to automate Salesforce CRM login and dashboard access.
+- I want to test API endpoints (e.g., Swagger Petstore) for CRUD operations.
+- I want to automate password reset flows based on Jira stories.
+- I want to automate database and OS operations.
+- I want to enable self-healing and defect logging in my automation.
+- I want to automate home and industrial IoT devices using FoXYiZ yPADs.
+- I want to connect SAP APIs, analyze data with AI, and generate insights.
+
+Human Role:
+- Developer
+- Tester
+- SDET
+- IT Architect
+- SAP Analyst
+- QE Manager
+- CXO
+- Team Leader
+- Product Owner
+- Scrum Master
+- Release Manager
+- DevOps Engineer
+
+Industry:
+- Software
+- QA/QE
+- SAP
+- IoT/Home Automation
+
+---
+
+### Section 1: Software Development and Testing
+Context:
+- I built a new code module and would like to perform unit and component testing.
+- Automate regression, end-to-end, and exploratory tests for web and API applications.
+- Integrate automated tests into CI/CD pipelines.
+- Validate microservices, cloud migrations, and localization.
+- Test Salesforce CRM and SAP workflows using FoXYiZ.
+
+Prompts:
+- Generate unit/component tests for new modules using FoXYiZ yPADs.
+- Create test plans for login, password reset, and CRUD workflows with yPAD CSV files.
+- Suggest test cases for API error handling and edge cases (e.g., Swagger Petstore).
+- Propose regression and exploratory test suites for software releases.
+- Recommend performance and accessibility test scenarios for web apps.
+- Generate test data for integrations (e.g., payment systems, CRM) using yDesigns.
+
+---
+
+### Section 2: Daily Task Automation
+Context:
+- I want to automate daily productivity and information tasks using FoXYiZ yPADs.
+- Use open APIs with xAPI or UI web crawling with xUI to fetch data like weather, news, and sports scores.
+- Create a custom yPAD for tasks such as getting current temperature, commute info, news highlights, currency rates, and live cricket scores.
+
+Prompts:
+- Develop a yPAD named `<task>_Tasks.csv` (e.g., `getCurrentTemp_Tasks.csv`) for daily tasks.
+- Suggest yPADs to automate fetching weather, news, commute, currency (USD vs INR), and cricket scores using xAPI or xUI.
+- Build parameterized yPADs for evolving daily task requirements using yDesigns.
+
+---
+
+### Section 3: Enterprise Application Automation
+Context:
+- I need to automate Salesforce CRM login and dashboard access with FoXYiZ.
+- Automate SAP workflows, connect SAP APIs, and analyze data with AI.
+- Test API endpoints (e.g., Swagger Petstore) for CRUD operations.
+
+Prompts:
+- Generate yPAD CSV files for Salesforce CRM login and dashboard access with credentials.
+- Create yPADs to test Swagger Petstore API endpoints (e.g., GET /pet/{petId}, POST /pet).
+- Develop yPADs for SAP API integration and data analysis with AI using xAPI.
+
+---
+
+### Section 4: Process Automation and IoT
+Context:
+- I want to automate password reset flows based on Jira stories with parameterized data.
+- Automate home and industrial IoT devices using FoXYiZ yPADs.
+- Add new xCapa features for database/OS operations, self-healing, and defect logging.
+
+Prompts:
+- Build parameterized yPADs for password reset flows based on the provided Jira story using yDesigns.
+- Generate yPADs to automate home equipment (e.g., smart lights, thermostats) and industrial IoT devices.
+- Add new xCapa (e.g., xDB, xOS) for database queries and OS commands.
+- Implement xCapa for self-healing (e.g., retry failed actions) and defect logging (e.g., save to file).
+- Suggest yPADs for FoXYiZ as a bot for industrial and home automation.
+
+---
+
+### Section 5: Advanced Testing and Analytics
+Context:
+- Parameterize test data for evolving requirements (e.g., Jira stories).
+- Integrate automated tests into CI/CD pipelines and generate dashboards.
+- Operate and test IoT devices in home/industrial settings.
+
+Prompts:
+- Generate test data for integrations using yDesigns with parameterized values.
+- Create yPADs to build dashboards and analytics for test results.
+- Suggest yPlans for engineers and leaders to manage QA/QE tasks (e.g., test coverage, defect tracking).
+- Develop yPADs for cross-browser, mobile, and localization testing.
+
+---
+
+### Section 6: Math Operations Testing
+Context:
+- I want to automate and test complex math operations using FoXYiZ yPADs.
+- Create corresponding yPAD CSV files to validate mathematical functions.
+
+Prompts:
+- Generate complex math operations (e.g., quadratic equations, matrix multiplication, factorial) for testing.
+- Build yPAD CSV files (e.g., `yPADs_Math.csv`) with plans to test these operations using xMath.
+
+---
+
+### Section 7: Implementation and Case Studies
+Context:
+- Implement FoXYiZ for SAP case studies, API connectors, and data analysis.
+- Explore Stripe.com onboarding, pilot use cases, and front-end testing.
+- Use tools like Ruby, Cursor, and Goose for automation.
+
+Prompts:
+- Provide SAP case studies for FoXYiZ implementation (e.g., workflow automation).
+- Generate yPADs for Stripe.com onboarding and front-end tests.
+- Suggest pilot use cases and end-user workflows for FoXYiZ.
+- Create yPADs using Goose to read Pull Requests and generate unit tests.
+
+---
+
+### Section 8: Top QE Prompts
+Context:
+- Identify the top 20 most popular QE prompts requested by software testers.
+
+Prompts:
+- Test coverage analysis.
+- Defect detection and logging.
+- Automation ROI calculation.
+- CI/CD pipeline integration.
+- Exploratory testing strategies.
+- Performance testing scenarios.
+- Security testing cases.
+- Accessibility testing requirements.
+- Localization validation.
+- Data-driven testing setups.
+- API validation workflows.
+- UI workflow automation.
+- Self-healing test implementations.
+- Dashboarding and analytics.
+- Cross-browser testing plans.
+- Mobile testing configurations.
+- SAP workflow testing.
+- IoT device testing.
+- Home automation testing.
+- Regression test suite design.

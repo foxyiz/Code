@@ -1,0 +1,1 @@
+Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='yPlans.csv']': Message: [Artifacts => screenshot: None_None_190218.png | page: None_None_190218.html | error: None_None_190218.txt] [Link to P8_D1_3.png]

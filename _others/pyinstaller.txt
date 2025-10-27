@@ -1,0 +1,16 @@
+pyinstaller --onefile --add-data "x\\xActions.py;x" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --distpath C:\Foxyiz\ --name Foxyiz f/fEngine.py
+pyinstaller --onedir --add-data "x/chromedriver.exe;x" --add-data "x\\xActions.py;x" --add-data "x/geckodriver.exe;x" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import multiprocessing --distpath C:\Foxyiz\Demo3 --name Foxyiz f/fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --distpath C:\Foxyiz\ --name Foxyiz f/fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --distpath C:\Foxyiz\ --name Foxyiz f/fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --distpath C:\Foxyiz\ --name Foxyiz2 f/fEngine.py
+
+
+
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --distpath C:\Foxyiz\ --name Foxyiz fEngine.py
+
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --name Foxyiz fEngine.py
+
+
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --distpath C:\Foxyiz\ --name Foxyiz f/fEngine.py
+
+pyinstaller --onedir --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --name Foxyiz fEngine.py

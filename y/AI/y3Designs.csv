@@ -1,0 +1,15 @@
+Type,DataName,D1,D2,D3
+AI,api_endpoint,https://api.openai.com/v1/chat/completions,https://api.openai.com/v1/chat/completions,https://api.openai.com/v1/chat/completions
+AI,api_key,env:OPENAI_API_KEY,env:OPENAI_API_KEY,env:OPENAI_API_KEY
+AI,model,gpt-4o,gpt-4o,gpt-4o
+AI,options,temp=0.7,max=500,temp=0.5,max=300,temp=0.3,max=200
+AI,simple_prompt,Hello! Please introduce yourself and explain what you can do.,What is artificial intelligence?,Tell me a joke.
+AI,context_file,@f/_others/AI.txt,@f/_others/Readme.txt,@f/_others/AI.txt
+AI,context_prompt,Based on this context, create 3 test automation ideas.,Summarize the main features of this framework.,Generate 5 automation scenarios.
+AI,weather_prompt,What is the current weather in New York City?,How is the weather in London today?,What's the temperature in Tokyo?
+AI,news_prompt,Give me the top 3 news headlines today.,What are the latest technology news?,Summarize today's business news.
+AI,cricket_prompt,Who is the captain of the Indian cricket team?,What are the latest cricket match results?,Tell me about the upcoming cricket tournaments.
+AI,math_prompt,Solve this equation: 2x + 5 = 15,Calculate the area of a circle with radius 7,What is 15% of 240?
+AI,code_prompt,Write a Python function to reverse a string,Create a simple HTML page with CSS,Explain how to use Git for version control.
+AI,document_file,@f/_others/Readme.txt,@f/_others/AI.txt,@f/_others/Readme.txt
+AI,summary_prompt,Provide a brief summary of this document,Extract the key points from this text,Create a bullet-point summary.

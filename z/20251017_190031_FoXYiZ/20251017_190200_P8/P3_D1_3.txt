@@ -1,0 +1,1 @@
+Error in xGetText: xGetText failed for locator 'css==h1': Message: [Artifacts => screenshot: None_None_190355.png | page: None_None_190355.html | error: None_None_190355.txt] [Link to P3_D1_3.png]

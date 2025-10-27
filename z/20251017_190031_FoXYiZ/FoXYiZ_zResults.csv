@@ -1,0 +1,42 @@
+DesignId,PlanId,StepId,StepInfo,ActionType,ActionName,Input,Output,Expected,Critical,Result,Time,TimeTaken
+D1,P1,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,19:00:33,2.034046173095703
+D1,P1,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,19:00:36,2.951988935470581
+D1,P1,3,Verify Title,xUI,xGetTitle,nan,FoXYiZ,nan,y,Pass,19:00:36,0.005602836608886719
+D1,P1,4,Wait for Main Heading,xUI,xWaitFor,css==h1,Element is present,nan,y,Pass,19:00:38,2.1024980545043945
+D1,P1,5,Verify Main Heading,xUI,xGetText,css==h1,404,nan,y,Pass,19:00:38,0.032213449478149414
+D1,P1,6,Verify Feature Cards,xUI,xGetText,css==.feature-card,Error in xGetText: xGetText failed for locator 'css==.feature-card': Message: [Artifacts => screenshot: None_None_190056.png | page: None_No [Link to P1_D1_6.txt],nan,n,Fail,19:00:56,17.8819363117218
+D1,P1,7,Close Browser,xUI,xCloseBrowser,nan,Browser closed,nan,n,Pass,19:00:59,2.5757172107696533
+D1,P2,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,19:01:00,1.3249824047088623
+D1,P2,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,19:01:04,3.5143136978149414
+D1,P2,3,Click F Engine Link,xUI,xClick,"css==a[href=""f.html""]","Error in xClick: xClick failed for locator 'css==a[href=""f.html""]': Message: [Artifacts => screenshot: None_None_190122.png | page: None_Non [Link to P2_D1_3.txt]",nan,y,Fail,19:01:22,17.736560344696045
+D1,P4,1,Open Browser,xUI,xOpenBrowser,chrome,Browser already open,nan,y,Pass,19:01:22,0.0001220703125
+D1,P4,2,Navigate to Y YPADs,xUI,xNavigate,https://foxyiz.com/K3/y.html,Navigated to https://foxyiz.com/K3/y.html,nan,y,Pass,19:01:23,0.6857643127441406
+D1,P4,3,Verify YPADs Title,xUI,xGetText,css==h1,Error in xGetText: xGetText failed for locator 'css==h1': Message: [Artifacts => screenshot: None_None_190140.png | page: None_None_190140.h [Link to P4_D1_3.txt],nan,y,Fail,19:01:40,17.769240140914917
+D1,P7,1,Open Browser,xUI,xOpenBrowser,chrome,Browser already open,nan,y,Pass,19:01:40,0.0004956722259521484
+D1,P7,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,19:01:42,1.1133663654327393
+D1,P7,3,Type in Search Box,xUI,xType,automation;xpath==//input[@placeholder='Search'],Error in xType: xType failed for locator 'xpath==//input[@placeholder='Search']': Message: [Artifacts => screenshot: None_None_190159.png |  [Link to P7_D1_3.txt],nan,y,Fail,19:02:00,17.900296926498413
+D1,P8,1,Open Browser,xUI,xOpenBrowser,chrome,Browser already open,nan,y,Pass,19:02:00,7.081031799316406e-05
+D1,P8,2,Navigate to Y YPADs,xUI,xNavigate,https://foxyiz.com/K3/y.html,Navigated to https://foxyiz.com/K3/y.html,nan,y,Pass,19:02:00,0.6355166435241699
+D1,P8,3,Click yPlans Upload,xUI,xClick,xpath==//button[normalize-space(.)='yPlans.csv'],Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='yPlans.csv']': Message: [Artifacts => screenshot: None_None_ [Link to P8_D1_3.txt],nan,n,Fail,19:02:18,17.87297296524048
+D1,P8,4,Upload Test File,xUI,xUploadFile,"css==input[type=""file""];/y/Mix/y1Plans.csv",Error in xUploadFile: File not found: D:\y\Mix\y1Plans.csv [Link to P8_D1_4.png],nan,n,Fail,19:02:18,0.0006558895111083984
+D1,P8,5,Click yActions Upload,xUI,xClick,xpath==//button[normalize-space(.)='yActions.csv'],Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='yActions.csv']': Message: [Artifacts => screenshot: None_Non [Link to P8_D1_5.txt],nan,n,Fail,19:02:36,17.833223342895508
+D1,P8,6,Upload Test File,xUI,xUploadFile,"css==input[type=""file""];/y/Mix/y1Plans.csv",Error in xUploadFile: File not found: D:\y\Mix\y1Plans.csv [Link to P8_D1_6.png],nan,n,Fail,19:02:36,0.00031375885009765625
+D1,P8,7,Click yDesigns Upload,xUI,xClick,xpath==//button[normalize-space(.)='yDesigns.csv'],Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='yDesigns.csv']': Message: [Artifacts => screenshot: None_Non [Link to P8_D1_7.txt],nan,n,Fail,19:02:54,17.85272526741028
+D1,P8,8,Upload Test File,xUI,xUploadFile,"css==input[type=""file""];/y/Mix/y1Plans.csv",Error in xUploadFile: File not found: D:\y\Mix\y1Plans.csv [Link to P8_D1_8.png],nan,n,Fail,19:02:54,0.0004947185516357422
+D1,P8,9,Click Add YPAD Set,xUI,xClick,xpath==//button[normalize-space(.)='Add YPAD Set'],Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='Add YPAD Set']': Message: [Artifacts => screenshot: None_Non [Link to P8_D1_9.txt],nan,n,Fail,19:03:12,17.818929433822632
+D1,P8,10,Verify Upload Success,xUI,xWaitFor,css==.success-message,Error in xWaitFor: xWaitFor failed for locator 'css==.success-message': Message: [Artifacts => screenshot: None_None_190330.png | page: None [Link to P8_D1_10.txt],nan,n,Fail,19:03:30,17.82100200653076
+D1,P8,11,Close Browser,xUI,xCloseBrowser,nan,Browser closed,nan,n,Pass,19:03:32,2.2003979682922363
+D1,P3,3,Verify F Engine Title,xUI,xGetText,css==h1,Error in xGetText: xGetText failed for locator 'css==h1': Message: [Artifacts => screenshot: None_None_190355.png | page: None_None_190355.h [Link to P3_D1_3.txt],nan,y,Fail,19:03:55,17.707964181900024
+D1,P8,2,Navigate to AI Assistant,xUI,xNavigate,ai_url,Error in xNavigate: Invalid URL: ai_url. Must start with http:// or https:// [Link to P8_D1_2.png],nan,n,Fail,19:03:55,0.0004990100860595703
+D1,P8,3,Upload Context File,xUI,xUploadFile,context_input_locator;context_file_path,Error in xUploadFile: File not found: D:\FoXYiZ\1F_Code\context_file_path [Link to P8_D1_3.png],nan,n,Fail,19:03:55,0.0005040168762207031
+D1,P8,4,Type Query,xUI,xType,query_text;query_input_locator,Error in xType: xType failed for locator 'query_input_locator': Message: [Artifacts => screenshot: None_None_190413.png | page: None_None_19 [Link to P8_D1_4.txt],nan,n,Fail,19:04:13,17.843974351882935
+D1,P8,5,Click Submit,xUI,xClick,submit_button_locator,Error in xClick: xClick failed for locator 'submit_button_locator': Message: [Artifacts => screenshot: None_None_190431.png | page: None_Non [Link to P8_D1_5.txt],nan,n,Fail,19:04:31,17.683014154434204
+D1,P8,6,Verify Response,xUI,xGetText,response_locator,Error in xGetText: xGetText failed for locator 'response_locator': Message: [Artifacts => screenshot: None_None_190448.png | page: None_None [Link to P8_D1_6.txt],nan,n,Fail,19:04:49,17.670494079589844
+D1,P8,7,Close Browser,xUI,xCloseBrowser,nan,Browser closed,nan,n,Pass,19:04:52,3.4130542278289795
+D1,P13,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,19:04:53,1.2921369075775146
+D1,P13,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,19:04:56,3.0155858993530273
+D1,P13,3,Click AI Assistant Link,xUI,xClick,"css==a[href=""ai.html""]","Error in xClick: xClick failed for locator 'css==a[href=""ai.html""]': Message: [Artifacts => screenshot: None_None_190514.png | page: None_No [Link to P13_D1_3.txt]",nan,y,Fail,19:05:14,17.70697045326233
+D1,P14,1,Open Browser,xUI,xOpenBrowser,chrome,Browser already open,nan,y,Pass,19:05:14,0.00010561943054199219
+D1,P14,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,19:05:15,0.5901565551757812
+D1,P14,3,Verify Title,xUI,xGetTitle,nan,FoXYiZ,nan,y,Pass,19:05:15,0.027174949645996094
+D1,P14,4,Close Browser,xUI,xCloseBrowser,nan,Browser closed,nan,n,Pass,19:05:18,2.5678369998931885

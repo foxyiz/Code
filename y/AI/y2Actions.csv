@@ -1,0 +1,9 @@
+PlanId,StepId,StepInfo,ActionType,ActionName,Input,Output,Expected,Critical
+AI_SimplePrompt,1,Simple AI Text Prompt,xAI,xTextPrompt,api_endpoint;api_key;simple_prompt;model;options,ai_response,,n
+AI_ContextPrompt,1,AI with Context File,xAI,xContextPrompt,api_endpoint;api_key;context_file;context_prompt;model;options,ai_response,,n
+AI_WeatherPrompt,1,Get Weather Information,xAI,xTextPrompt,api_endpoint;api_key;weather_prompt;model;options,ai_response,,n
+AI_NewsPrompt,1,Get News Headlines,xAI,xTextPrompt,api_endpoint;api_key;news_prompt;model;options,ai_response,,n
+AI_CricketPrompt,1,Get Cricket Information,xAI,xTextPrompt,api_endpoint;api_key;cricket_prompt;model;options,ai_response,,n
+AI_MathPrompt,1,AI Math Assistant,xAI,xTextPrompt,api_endpoint;api_key;math_prompt;model;options,ai_response,,n
+AI_CodePrompt,1,AI Code Helper,xAI,xTextPrompt,api_endpoint;api_key;code_prompt;model;options,ai_response,,n
+AI_SummaryPrompt,1,AI Document Summary,xAI,xContextPrompt,api_endpoint;api_key;document_file;summary_prompt;model;options,ai_response,,n

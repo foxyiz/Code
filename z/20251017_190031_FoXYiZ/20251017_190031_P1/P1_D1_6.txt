@@ -1,0 +1,1 @@
+Error in xGetText: xGetText failed for locator 'css==.feature-card': Message: [Artifacts => screenshot: None_None_190056.png | page: None_None_190056.html | error: None_None_190056.txt] [Link to P1_D1_6.png]

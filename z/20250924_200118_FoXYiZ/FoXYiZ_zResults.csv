@@ -1,0 +1,18 @@
+DesignId,PlanId,StepId,StepInfo,ActionType,ActionName,Input,Output,Expected,Critical,Result,Time,TimeTaken
+D1,P1,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,20:01:22,2.4068210124969482
+D1,P1,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,20:01:27,4.94029426574707
+D1,P1,3,Verify Title,xUI,xGetTitle,nan,FoXYiZ - Modern Workflow Automation,nan,y,Pass,20:01:27,0.013878583908081055
+D1,P1,4,Wait for Main Heading,xUI,xWaitFor,css==h1,Element is present,nan,y,Pass,20:01:28,0.027535676956176758
+D1,P1,5,Verify Main Heading,xUI,xGetText,css==h1,FoXYiZ,nan,y,Pass,20:01:28,0.06921505928039551
+D1,P1,6,Verify Feature Cards,xUI,xGetText,css==.feature-card,"⚡
+F - Automation Engine
+The heart of FoXYiZ. Download our executable engine and run automations locally or in the cloud.
+What you get:
+Stand [Link to P1_D1_6.txt]",nan,n,Pass,20:01:28,0.06698417663574219
+D1,P1,7,Close Browser,xUI,xCloseBrowser,nan,Browser closed,nan,n,Pass,20:01:30,2.2620484828948975
+D1,P2,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,20:01:22,2.3967533111572266
+D1,P2,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,20:01:26,3.596250057220459
+D1,P2,3,Click F Engine Link,xUI,xClick,"css==a[href=""/f.html""]","Error in xClick: xClick failed for locator 'css==a[href=""/f.html""]': Message: [Artifacts => screenshot: None_None_200143.png | page: None_No [Link to P2_D1_3.txt]",nan,y,Fail,20:01:44,17.505088567733765
+D1,P7,1,Open Browser,xUI,xOpenBrowser,chrome,Opened chrome browser,nan,y,Pass,20:01:22,2.351370096206665
+D1,P7,2,Navigate to Home,xUI,xNavigate,https://foxyiz.com/K3,Navigated to https://foxyiz.com/K3,nan,y,Pass,20:01:27,5.030896902084351
+D1,P7,3,Type in Search Box,xUI,xType,"css==input[placeholder*=""Search""];test query",Error in xType: xType failed for locator 'test query': Message: [Artifacts => screenshot: None_None_200145.png | page: None_None_200145.html [Link to P7_D1_3.txt],nan,y,Fail,20:01:45,17.583551168441772

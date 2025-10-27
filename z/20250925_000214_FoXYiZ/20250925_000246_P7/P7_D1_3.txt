@@ -1,0 +1,1 @@
+Error in xType: xType failed for locator 'test query': Message: [Artifacts => screenshot: None_None_000303.png | page: None_None_000303.html | error: None_None_000303.txt] [Link to P7_D1_3.png]

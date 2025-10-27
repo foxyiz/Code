@@ -1,0 +1,63 @@
+
+    <html>
+    <head>
+        <title>Test Dashboard - FoXYiZ</title>
+        <style>
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid black; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+        </style>
+    </head>
+    <body>
+        <h1>Test Dashboard - FoXYiZ</h1>
+        <h2>Summary - Plans</h2>
+        <table>
+            <tr><th>Total</th><td>3</td></tr>
+            <tr><th>Executed</th><td>3</td></tr>
+            <tr><th>Pending</th><td>0</td></tr>
+            <tr><th>Time Taken (s)</th><td>44.45</td></tr>
+            <tr><th>Pass</th><td>3</td></tr>
+            <tr><th>Fail</th><td>2</td></tr>
+        </table>
+        <h2>Summary - Actions</h2>
+        <table>
+            <tr><th>Total</th><td>13</td></tr>
+            <tr><th>Executed</th><td>13</td></tr>
+            <tr><th>Pending</th><td>0</td></tr>
+            <tr><th>Time Taken (s)</th><td>44.45</td></tr>
+            <tr><th>Pass</th><td>11</td></tr>
+            <tr><th>Fail</th><td>2</td></tr>
+        </table>
+        <h2>Plans</h2>
+        <table>
+            <tr><th>DesignId</th><th>PlanId</th><th>Output</th><th>Result</th><th>Time (s)</th></tr>
+            <tr><td>D1</td><td>P1</td><td>Opened chrome browser</td><td>Pass</td><td>1.63</td></tr>
+<tr><td>D1</td><td>P2</td><td>Opened chrome browser</td><td>Pass</td><td>1.46</td></tr>
+<tr><td>D1</td><td>P7</td><td>Browser already open</td><td>Pass</td><td>0.0</td></tr>
+
+        </table>
+        <h2>Actions</h2>
+        <table>
+            <tr><th>DesignId</th><th>PlanId</th><th>StepId</th><th>StepInfo</th><th>ActionType</th><th>ActionName</th><th>Input</th><th>Output</th><th>Expected</th><th>Result</th><th>TimeTaken (s)</th></tr>
+            <tr><td>D1</td><td>P1</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Opened chrome browser</td><td>nan</td><td>Pass</td><td>1.63</td></tr>
+<tr><td>D1</td><td>P1</td><td>2</td><td>Navigate to Home</td><td>xUI</td><td>xNavigate</td><td>https://foxyiz.com/K3</td><td>Navigated to https://foxyiz.com/K3</td><td>nan</td><td>Pass</td><td>0.77</td></tr>
+<tr><td>D1</td><td>P1</td><td>3</td><td>Verify Title</td><td>xUI</td><td>xGetTitle</td><td>nan</td><td>FoXYiZ - Modern Workflow Automation</td><td>nan</td><td>Pass</td><td>0.19</td></tr>
+<tr><td>D1</td><td>P1</td><td>4</td><td>Wait for Main Heading</td><td>xUI</td><td>xWaitFor</td><td>css==h1</td><td>Element is present</td><td>nan</td><td>Pass</td><td>0.02</td></tr>
+<tr><td>D1</td><td>P1</td><td>5</td><td>Verify Main Heading</td><td>xUI</td><td>xGetText</td><td>css==h1</td><td>FoXYiZ</td><td>nan</td><td>Pass</td><td>0.07</td></tr>
+<tr><td>D1</td><td>P1</td><td>6</td><td>Verify Feature Cards</td><td>xUI</td><td>xGetText</td><td>css==.feature-card</td><td>⚡
+F - Automation Engine
+The heart of FoXYiZ. Download our executable engine and run automations locally or in the cloud.
+What you get:
+Stand [Link to P1_D1_6.txt]</td><td>nan</td><td>Pass</td><td>0.05</td></tr>
+<tr><td>D1</td><td>P1</td><td>7</td><td>Close Browser</td><td>xUI</td><td>xCloseBrowser</td><td>nan</td><td>Browser closed</td><td>nan</td><td>Pass</td><td>2.27</td></tr>
+<tr><td>D1</td><td>P2</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Opened chrome browser</td><td>nan</td><td>Pass</td><td>1.46</td></tr>
+<tr><td>D1</td><td>P2</td><td>2</td><td>Navigate to Home</td><td>xUI</td><td>xNavigate</td><td>https://foxyiz.com/K3</td><td>Navigated to https://foxyiz.com/K3</td><td>nan</td><td>Pass</td><td>1.42</td></tr>
+<tr><td>D1</td><td>P2</td><td>3</td><td>Click F Engine Link</td><td>xUI</td><td>xClick</td><td>css==a[href="/K3/f.html"]</td><td>Error in xClick: xClick failed for locator 'css==a[href="/K3/f.html"]': Message: [Artifacts => screenshot: None_None_001241.png | page: None [Link to P2_D1_3.txt]</td><td>nan</td><td>Fail</td><td>18.42</td></tr>
+<tr><td>D1</td><td>P7</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Browser already open</td><td>nan</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D1</td><td>P7</td><td>2</td><td>Navigate to Home</td><td>xUI</td><td>xNavigate</td><td>https://foxyiz.com/K3</td><td>Navigated to https://foxyiz.com/K3</td><td>nan</td><td>Pass</td><td>0.28</td></tr>
+<tr><td>D1</td><td>P7</td><td>3</td><td>Type in Search Box</td><td>xUI</td><td>xType</td><td>xpath==//input[@placeholder='Search'];automation</td><td>Error in xType: xType failed for locator 'automation': Message: [Artifacts => screenshot: None_None_001300.png | page: None_None_001300.html [Link to P7_D1_3.txt]</td><td>nan</td><td>Fail</td><td>17.89</td></tr>
+
+        </table>
+    </body>
+    </html>
+    

@@ -1,0 +1,5 @@
+{
+  "configs": ["y/FoXYiZ.json", "y/Math.json", "y/Mix.json"],
+  "thread_count": 4,
+  "timeout": 5
+}

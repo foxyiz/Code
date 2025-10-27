@@ -1,0 +1,1 @@
+Error in xType: xType failed for locator 'query_input_locator': Message: [Artifacts => screenshot: None_None_190413.png | page: None_None_190413.html | error: None_None_190413.txt] [Link to P8_D1_4.png]

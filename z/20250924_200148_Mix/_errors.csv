@@ -1,0 +1,9 @@
+Time,PlanId,DesignId,StepId,ActionType,ActionName,StepInfo,Output
+2025-09-24 20:02:11,PUI_AddRemoveElements,D1,3,xUI,xClick,,Error in xClick: xClick failed for locator 'css==button[onclick="addElement()"]': Message: [Artifacts => screenshot: None_None_200210.png |  [Link to PUI_AddRemoveElements_D1_3.txt]
+2025-09-24 20:02:11,PMath_Area,D1,2,xMath,xMultiply,,Error in xMultiply: Non-numeric input: ['vTemp'; '3.14'] [Link to PMath_Area_D1_2.txt]
+2025-09-24 20:02:11,PUI_Checkboxes,D1,3,xUI,xClick,,Error in xClick: xClick failed for locator 'css==input[type="checkbox"]:nth-child(1)': Message: [Artifacts => screenshot: None_None_200211.p [Link to PUI_Checkboxes_D1_3.txt]
+2025-09-24 20:02:14,PAPI_UserGet,D1,1,xAPI,xGet,,401
+2025-09-24 20:02:15,PAPI_UsersGet,D1,1,xAPI,xGet,,401
+2025-09-24 20:02:16,PAPI_UserCreate,D1,1,xAPI,xPost,,401
+2025-09-24 20:02:18,PLoginTest,D1,6,xUI,xWaitFor,,Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(); 'Dashboard')]': Message: [Artifacts => screenshot: None_None_2 [Link to PLoginTest_D1_6.txt]
+2025-09-24 20:02:18,PLoginTest,D1,6,xUI,xWaitFor,,Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(); 'Dashboard')]': Message: [Artifacts => screenshot: None_None_2 [Link to PLoginTest_D1_6.txt]

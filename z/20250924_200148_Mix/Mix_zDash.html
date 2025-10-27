@@ -1,0 +1,81 @@
+
+    <html>
+    <head>
+        <title>Test Dashboard - Mix</title>
+        <style>
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid black; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+        </style>
+    </head>
+    <body>
+        <h1>Test Dashboard - Mix</h1>
+        <h2>Summary - Plans</h2>
+        <table>
+            <tr><th>Total</th><td>11</td></tr>
+            <tr><th>Executed</th><td>11</td></tr>
+            <tr><th>Pending</th><td>0</td></tr>
+            <tr><th>Time Taken (s)</th><td>97.99</td></tr>
+            <tr><th>Pass</th><td>8</td></tr>
+            <tr><th>Fail</th><td>7</td></tr>
+        </table>
+        <h2>Summary - Actions</h2>
+        <table>
+            <tr><th>Total</th><td>25</td></tr>
+            <tr><th>Executed</th><td>25</td></tr>
+            <tr><th>Pending</th><td>0</td></tr>
+            <tr><th>Time Taken (s)</th><td>97.99</td></tr>
+            <tr><th>Pass</th><td>16</td></tr>
+            <tr><th>Fail</th><td>9</td></tr>
+        </table>
+        <h2>Plans</h2>
+        <table>
+            <tr><th>DesignId</th><th>PlanId</th><th>Output</th><th>Result</th><th>Time (s)</th></tr>
+            <tr><td>D1</td><td>PAPI_PetAdd</td><td>200</td><td>Pass</td><td>1.73</td></tr>
+<tr><td>D1</td><td>PAPI_PetDelete</td><td>200</td><td>Pass</td><td>1.46</td></tr>
+<tr><td>D1</td><td>PAPI_PetGet</td><td>200</td><td>Pass</td><td>1.77</td></tr>
+<tr><td>D1</td><td>PAPI_UserCreate</td><td>401</td><td>Fail</td><td>1.45</td></tr>
+<tr><td>D1</td><td>PAPI_UserGet</td><td>401</td><td>Fail</td><td>1.22</td></tr>
+<tr><td>D1</td><td>PAPI_UsersGet</td><td>401</td><td>Fail</td><td>1.48</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>Opened chrome browser</td><td>Pass</td><td>2.87</td></tr>
+<tr><td>D1</td><td>PMath_Addition</td><td>35.0</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D1</td><td>PMath_Area</td><td>144.0</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D1</td><td>PUI_AddRemoveElements</td><td>Opened chrome browser</td><td>Pass</td><td>2.78</td></tr>
+<tr><td>D1</td><td>PUI_Checkboxes</td><td>Opened chrome browser</td><td>Pass</td><td>2.79</td></tr>
+<tr><td>D2</td><td>PMath_Addition</td><td>500.0</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D2</td><td>PMath_Area</td><td>40000.0</td><td>Pass</td><td>0.0</td></tr>
+
+        </table>
+        <h2>Actions</h2>
+        <table>
+            <tr><th>DesignId</th><th>PlanId</th><th>StepId</th><th>StepInfo</th><th>ActionType</th><th>ActionName</th><th>Input</th><th>Output</th><th>Expected</th><th>Result</th><th>TimeTaken (s)</th></tr>
+            <tr><td>D1</td><td>PLoginTest</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Opened chrome browser</td><td>nan</td><td>Pass</td><td>2.87</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>2</td><td>Navigate to URL</td><td>xUI</td><td>xNavigate</td><td>https://ui.cogmento.com/?lang=en</td><td>Navigated to https://ui.cogmento.com/?lang=en</td><td>nan</td><td>Pass</td><td>6.59</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>3</td><td>Type Email</td><td>xUI</td><td>xType</td><td>kkarthikqe@gmail.com;xpath==//input[@name='email']</td><td>Typed 'kkarthikqe@gmail.com' into element</td><td>nan</td><td>Pass</td><td>0.36</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>4</td><td>Type Password</td><td>xUI</td><td>xType</td><td>Test123$;xpath==//input[@name='password']</td><td>Typed 'Test123$' into element</td><td>nan</td><td>Pass</td><td>0.15</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>5</td><td>Click Login</td><td>xUI</td><td>xClick</td><td>xpath==//div[text()='Login']</td><td>Clicked element</td><td>nan</td><td>Pass</td><td>0.19</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>6</td><td>Wait for Dashboard</td><td>xUI</td><td>xWaitFor</td><td>xpath==//div[contains(text(), 'Dashboard')]</td><td>Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(); 'Dashboard')]': Message: [Artifacts => screenshot: None_None_2 [Link to PLoginTest_D1_6.txt]</td><td>nan</td><td>Fail</td><td>18.23</td></tr>
+<tr><td>D1</td><td>PLoginTest</td><td>6</td><td>Wait for Dashboard</td><td>xUI</td><td>xWaitFor</td><td>xpath==//div[contains(text(), 'Dashboard')]</td><td>Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(); 'Dashboard')]': Message: [Artifacts => screenshot: None_None_2 [Link to PLoginTest_D1_6.txt]</td><td>nan</td><td>Fail</td><td>18.22</td></tr>
+<tr><td>D1</td><td>PUI_AddRemoveElements</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Opened chrome browser</td><td>nan</td><td>Pass</td><td>2.78</td></tr>
+<tr><td>D1</td><td>PUI_AddRemoveElements</td><td>2</td><td>Navigate to Add/Remove Elements</td><td>xUI</td><td>xNavigate</td><td>https://the-internet.herokuapp.com/;css==a[href="/add_remove_elements/"]</td><td>Navigated to https://the-internet.herokuapp.com/;css==a[href="/add_remove_elements/"]</td><td>nan</td><td>Pass</td><td>0.62</td></tr>
+<tr><td>D1</td><td>PUI_AddRemoveElements</td><td>3</td><td>Click Add Element</td><td>xUI</td><td>xClick</td><td>css==button[onclick="addElement()"]</td><td>Error in xClick: xClick failed for locator 'css==button[onclick="addElement()"]': Message: [Artifacts => screenshot: None_None_200210.png |  [Link to PUI_AddRemoveElements_D1_3.txt]</td><td>nan</td><td>Fail</td><td>17.64</td></tr>
+<tr><td>D1</td><td>PUI_Checkboxes</td><td>1</td><td>Open Browser</td><td>xUI</td><td>xOpenBrowser</td><td>chrome</td><td>Opened chrome browser</td><td>nan</td><td>Pass</td><td>2.79</td></tr>
+<tr><td>D1</td><td>PUI_Checkboxes</td><td>2</td><td>Navigate to Checkboxes</td><td>xUI</td><td>xNavigate</td><td>https://the-internet.herokuapp.com/;css==a[href="/checkboxes"]</td><td>Navigated to https://the-internet.herokuapp.com/;css==a[href="/checkboxes"]</td><td>nan</td><td>Pass</td><td>0.81</td></tr>
+<tr><td>D1</td><td>PUI_Checkboxes</td><td>3</td><td>Check First Checkbox</td><td>xUI</td><td>xClick</td><td>css==input[type="checkbox"]:nth-child(1)</td><td>Error in xClick: xClick failed for locator 'css==input[type="checkbox"]:nth-child(1)': Message: [Artifacts => screenshot: None_None_200211.p [Link to PUI_Checkboxes_D1_3.txt]</td><td>nan</td><td>Fail</td><td>17.62</td></tr>
+<tr><td>D1</td><td>PMath_Addition</td><td>1</td><td>Verify_Math_Addition</td><td>xMath</td><td>xAdd</td><td>12;23</td><td>35.0</td><td>35</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D2</td><td>PMath_Addition</td><td>1</td><td>Verify_Math_Addition</td><td>xMath</td><td>xAdd</td><td>200;300</td><td>500.0</td><td>500</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D1</td><td>PMath_Area</td><td>1</td><td>Square radius</td><td>xMath</td><td>xMultiply</td><td>12;12</td><td>144.0</td><td>nan</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D1</td><td>PMath_Area</td><td>2</td><td>Multiple res with pi</td><td>xMath</td><td>xMultiply</td><td>vTemp;3.14</td><td>Error in xMultiply: Non-numeric input: ['vTemp'; '3.14'] [Link to PMath_Area_D1_2.txt]</td><td>452.16</td><td>Fail</td><td>0.0</td></tr>
+<tr><td>D2</td><td>PMath_Area</td><td>1</td><td>Square radius</td><td>xMath</td><td>xMultiply</td><td>200;200</td><td>40000.0</td><td>nan</td><td>Pass</td><td>0.0</td></tr>
+<tr><td>D2</td><td>PMath_Area</td><td>2</td><td>Multiple res with pi</td><td>xMath</td><td>xMultiply</td><td>vTemp;3.14</td><td>Error in xMultiply: Non-numeric input: ['vTemp'; '3.14'] [Link to PMath_Area_D1_2.txt]</td><td>12845</td><td>Fail</td><td>0.0</td></tr>
+<tr><td>D1</td><td>PAPI_PetGet</td><td>1</td><td>Get pet by ID</td><td>xAPI</td><td>xGet</td><td>https://petstore.swagger.io/v2;/pet/1</td><td>200</td><td>200</td><td>Pass</td><td>1.77</td></tr>
+<tr><td>D1</td><td>PAPI_PetAdd</td><td>1</td><td>Add new pet</td><td>xAPI</td><td>xPost</td><td>https://petstore.swagger.io/v2;/pet;/y/API/addPet.json</td><td>200</td><td>200</td><td>Pass</td><td>1.73</td></tr>
+<tr><td>D1</td><td>PAPI_PetDelete</td><td>1</td><td>Delete pet by ID</td><td>xAPI</td><td>xDelete</td><td>https://petstore.swagger.io/v2;/pet/1</td><td>200</td><td>200</td><td>Pass</td><td>1.46</td></tr>
+<tr><td>D1</td><td>PAPI_UserGet</td><td>1</td><td>Get user by ID</td><td>xAPI</td><td>xGet</td><td>https://reqres.in/api;/users/1</td><td>401</td><td>200</td><td>Fail</td><td>1.22</td></tr>
+<tr><td>D1</td><td>PAPI_UsersGet</td><td>1</td><td>Get all users</td><td>xAPI</td><td>xGet</td><td>https://reqres.in/api;/users/1</td><td>401</td><td>200</td><td>Fail</td><td>1.48</td></tr>
+<tr><td>D1</td><td>PAPI_UserCreate</td><td>1</td><td>Create new user</td><td>xAPI</td><td>xPost</td><td>https://reqres.in/api;/users;/y/API/addUser.json;Bearer valid_token</td><td>401</td><td>201</td><td>Fail</td><td>1.45</td></tr>
+
+        </table>
+    </body>
+    </html>
+    

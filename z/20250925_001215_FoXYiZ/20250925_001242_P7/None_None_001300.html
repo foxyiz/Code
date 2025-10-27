@@ -1,0 +1,441 @@
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoXYiZ - Modern Workflow Automation</title>
+  <link rel="stylesheet" href="files/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    /* Page-specific styles */
+    .page-header {
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto 3rem auto;
+      padding: 2rem 0;
+    }
+
+    /* Match scrollbar styling used across the app */
+    .main-content::-webkit-scrollbar-thumb {
+      background: var(--theme-text-muted);
+    }
+    
+    .page-title {
+      font-size: 2.5em;
+      font-weight: 800;
+      margin-bottom: 0.8rem;
+      letter-spacing: -0.5px;
+      color: var(--theme-text);
+      line-height: 1.2;
+    }
+    
+    .page-subtitle {
+      font-size: 1.1em;
+      color: var(--theme-text-muted);
+      margin-bottom: 0.8rem;
+      font-weight: 400;
+      line-height: 1.4;
+    }
+    
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    
+    .feature-card {
+      background: var(--theme-bg-secondary);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+      box-shadow: var(--theme-shadow);
+      border: 1px solid var(--theme-border);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .feature-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--theme-shadow-lg);
+      border-color: var(--theme-primary);
+    }
+    
+    .feature-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+    
+    .feature-title {
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: var(--theme-text);
+      font-size: 1.35em;
+    }
+    
+    .feature-desc {
+      color: var(--theme-text-muted);
+      line-height: 1.6;
+      font-size: 1em;
+      margin-bottom: 1rem;
+    }
+    
+    .feature-benefits {
+      text-align: left;
+      background: var(--theme-bg);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--theme-border);
+    }
+    
+    .feature-benefits h4 {
+      color: var(--theme-text);
+      font-size: 1em;
+      margin-bottom: 0.8rem;
+      font-weight: 600;
+    }
+    
+    .feature-benefits ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .feature-benefits li {
+      color: var(--theme-text-muted);
+      margin-bottom: 0.4rem;
+      padding-left: 1.2rem;
+      position: relative;
+      font-size: 0.9em;
+    }
+    
+    .feature-benefits li::before {
+      content: '✓';
+      position: absolute;
+      left: 0;
+      color: var(--theme-accent);
+      font-weight: bold;
+    }
+
+    /* Ensure only the outer container scrolls so scrollbar appears at far right */
+    .viewport-fit .content-area {
+      overflow-y: visible;
+      overflow-x: visible;
+    }
+    
+    @media (max-width: 768px) {
+      .page-title {
+        font-size: 2em;
+        letter-spacing: -0.5px;
+      }
+      
+      .page-subtitle {
+        font-size: 1.1em;
+        padding: 0 1rem;
+      }
+      
+      .features-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+        padding: 0 1rem;
+      }
+      
+      .contact-form {
+        padding: 1.5rem;
+        margin: 0 1rem;
+      }
+      
+      .pricing-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        padding: 0 1rem;
+      }
+      
+      .pricing-card.featured {
+        transform: none;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .page-title {
+        font-size: 1.8em;
+      }
+      
+      .page-subtitle {
+        font-size: 1em;
+      }
+      
+      .feature-card {
+        padding: 1.5rem 1rem;
+      }
+      
+      .pricing-card {
+        padding: 1.5rem 1rem;
+      }
+    }
+  </style>
+<script id="foxyiz-ai-widget-loader" src="files/ai-widget.js" defer=""></script><style id="foxyiz-ai-widget-styles">
+      .foxyiz-ai-fab { position: fixed; right: 20px; bottom: 20px; z-index: 9999; width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%); color: #fff; border: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+      .foxyiz-ai-panel { position: fixed; right: 20px; bottom: 86px; z-index: 9999; width: 340px; max-height: 70vh; background: var(--theme-bg, #ffffff); color: var(--theme-text, #111827); border: 1px solid var(--theme-border, #e5e7eb); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.2); display: none; overflow: hidden; }
+      .foxyiz-ai-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: linear-gradient(135deg, rgba(6,182,212,0.12), rgba(139,92,246,0.12)); border-bottom: 1px solid var(--theme-border, #e5e7eb); }
+      .foxyiz-ai-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+      .foxyiz-ai-close { background: transparent; border: none; cursor: pointer; font-size: 16px; color: var(--theme-text-muted, #6b7280); }
+      .foxyiz-ai-messages { padding: 10px; height: 320px; overflow-y: auto; background: var(--theme-bg-secondary, #fafafa); }
+      .foxyiz-ai-msg { display: flex; gap: 8px; margin-bottom: 10px; }
+      .foxyiz-ai-msg.ai .bubble { background: #f1f5f9; color: #0f172a; }
+      .foxyiz-ai-msg.user { justify-content: flex-end; }
+      .foxyiz-ai-msg.user .bubble { background: #6366f1; color: #ffffff; }
+      .foxyiz-ai-avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+      .bubble { max-width: 80%; padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+      .foxyiz-ai-input { border-top: 1px solid var(--theme-border, #e5e7eb); padding: 8px; display: flex; gap: 6px; align-items: center; background: var(--theme-bg, #ffffff); }
+      .foxyiz-ai-textarea { flex: 1; resize: none; max-height: 120px; height: 36px; padding: 8px; border: 1px solid var(--theme-border, #e5e7eb); border-radius: 8px; font-size: 13px; }
+      .foxyiz-ai-send { background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%); color: #fff; border: none; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
+      .foxyiz-ai-status { font-size: 11px; color: var(--theme-text-muted, #6b7280); padding: 4px 10px; }
+      @media (max-width: 480px) { .foxyiz-ai-panel { width: calc(100vw - 24px); right: 12px; bottom: 80px; } .foxyiz-ai-fab { right: 12px; bottom: 12px; } }
+    </style></head>
+<body class="viewport-fit">
+  <header>
+    <a href="index.html"><img src="files/logo.png" alt="FoXYiZ Logo" class="header-logo"></a>
+    <div id="user-nav">
+      <span id="user-name" class="user-name"></span>
+      <button id="sign-out-btn" style="display: none;">Sign Out</button>
+      <a href="sign-in.html" id="sign-in-link" class="sign-in-link" style="display: flex;">
+        <span class="user-icon">👤</span>
+      </a>
+    </div>
+  </header>
+  
+  <nav class="sidebar">
+    <a href="index.html" class="active" aria-current="page">
+      <i class="fas fa-home"></i>
+    </a>
+    <a href="f.html">
+      <i class="fas fa-cogs"></i>
+    </a>
+    <a href="x.html">
+      <i class="fas fa-puzzle-piece"></i>
+    </a>
+    <a href="y.html">
+      <i class="fas fa-clipboard-list"></i>
+    </a>
+    <a href="z.html">
+      <i class="fas fa-chart-line"></i>
+    </a>
+    <a href="ai.html">
+      <i class="fas fa-robot"></i>
+    </a>
+    <a href="README.html">
+      <i class="fas fa-book"></i>
+    </a>
+    <a href="admin.html" id="admin-link" style="display: none;">
+      <i class="fas fa-crown"></i>
+    </a>
+  </nav>
+  
+  <script src="files/f.js"></script>
+  
+  <div class="main-content">
+    <div class="content-area">
+      <!-- Simple Header -->
+      <div class="page-header fade-in-up">
+        <h1 class="page-title">FoXYiZ</h1>
+        <p class="page-subtitle">
+          The ultimate workflow automation platform where <strong>F</strong>unction of <strong>X</strong> capabilities and <strong>Y</strong> plans 
+          gives you <strong>Z</strong> results.
+        </p>
+      </div>
+      
+      <!-- Features Grid -->
+      <div class="features-grid">
+        <div class="feature-card fade-in-up">
+          <span class="feature-icon">⚡</span>
+          <div class="feature-title">F - Automation Engine</div>
+          <div class="feature-desc">
+            The heart of FoXYiZ. Download our executable engine and run automations locally or in the cloud.
+          </div>
+          <div class="feature-benefits">
+            <h4>What you get:</h4>
+            <ul>
+              <li>Standalone executable (foxyiz.exe)</li>
+              <li>Cloud execution on AWS EC2</li>
+              <li>Local execution capability</li>
+              <li>Demo templates included</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="feature-card fade-in-up">
+          <span class="feature-icon">🔧</span>
+          <div class="feature-title">X - Built-in Capabilities</div>
+          <div class="feature-desc">
+            Pre-built automation capabilities including math operations, CSV processing, and more.
+          </div>
+          <div class="feature-benefits">
+            <h4>Built-in features:</h4>
+            <ul>
+              <li>Mathematical operations</li>
+              <li>CSV data processing</li>
+              <li>File operations</li>
+              <li>API integrations</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="feature-card fade-in-up">
+          <span class="feature-icon">📊</span>
+          <div class="feature-title">Y - Your Plans &amp; Actions</div>
+          <div class="feature-desc">
+            Create and manage your YPADs (Plans, Actions, Designs) to define what you want to automate.
+          </div>
+          <div class="feature-benefits">
+            <h4>YPAD components:</h4>
+            <ul>
+              <li>Strategic Plans</li>
+              <li>Action Sequences</li>
+              <li>Design Specifications</li>
+              <li>CSV-driven workflows</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <span class="feature-icon">📈</span>
+          <div class="feature-title">Z - Results &amp; Analytics</div>
+          <div class="feature-desc">
+            Track execution results, analyze performance, and get insights from your automation workflows.
+          </div>
+          <div class="feature-benefits">
+            <h4>Analytics features:</h4>
+            <ul>
+              <li>Execution logs</li>
+              <li>Performance metrics</li>
+              <li>Success/failure tracking</li>
+              <li>Historical data</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <span class="feature-icon">🤖</span>
+          <div class="feature-title">AI - Intelligent Assistant</div>
+          <div class="feature-desc">
+            AI assistance to help improve your workflows, generate YPADs, and optimize processes.
+          </div>
+          <div class="feature-benefits">
+            <h4>AI capabilities:</h4>
+            <ul>
+              <li>Workflow optimization</li>
+              <li>YPAD generation</li>
+              <li>Pattern recognition</li>
+              <li>Smart recommendations</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <span class="feature-icon">💼</span>
+          <div class="feature-title">Enterprise Ready</div>
+          <div class="feature-desc">
+            Built for businesses of all sizes with professional support and scalable infrastructure.
+          </div>
+          <div class="feature-benefits">
+            <h4>Enterprise features:</h4>
+            <ul>
+              <li>Multi-user support</li>
+              <li>Role-based access</li>
+              <li>Audit logging</li>
+              <li>24/7 support</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Documentation Link -->
+      <div class="text-center" style="margin: 2rem 0;">
+        <a href="README.html" class="help-link" style="font-size: 1.1em; padding: 12px 24px;">
+          📖 View Complete Documentation
+        </a>
+      </div>
+    </div>
+  </div>
+  
+  <script src="files/f.js"></script>
+  
+  <script>
+    // User management
+    function updateUserNav() {
+      const userNav = document.getElementById('user-nav');
+      const userName = document.getElementById('user-name');
+      const signOutBtn = document.getElementById('sign-out-btn');
+      const signInLink = userNav.querySelector('a[href="sign-in.html"]');
+      const adminLink = document.getElementById('admin-link');
+      
+      const currentUser = localStorage.getItem('foxyiz_user');
+      
+      if (currentUser) {
+        const user = JSON.parse(currentUser);
+        userName.textContent = user.name || user.email;
+        signOutBtn.style.display = 'inline-block';
+        if (signInLink) signInLink.style.display = 'none';
+        
+        // Show admin link only for admin users
+        if (user.is_admin && adminLink) {
+          adminLink.style.display = 'flex';
+        }
+      } else {
+        userName.textContent = '';
+        signOutBtn.style.display = 'none';
+        if (signInLink) signInLink.style.display = 'flex';
+        if (adminLink) adminLink.style.display = 'none';
+      }
+    }
+    
+    function signOut() {
+      localStorage.removeItem('foxyiz_user');
+      localStorage.removeItem('foxyiz_token');
+      updateUserNav();
+    }
+    
+    // Event listeners
+    document.getElementById('sign-out-btn').addEventListener('click', signOut);
+    
+    // Initialize
+    updateUserNav();
+    
+    
+    // Add fade-in animation to elements
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+    
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('fade-in-up');
+        }
+      });
+    }, observerOptions);
+    
+    // Observe all feature cards
+    document.querySelectorAll('.feature-card').forEach(el => {
+      observer.observe(el);
+    });
+  </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9848b6781aa088bd',t:'MTc1ODc4NDM0MS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><iframe height="1" width="1" style="position: absolute; top: 0px; left: 0px; border: none; visibility: hidden;"></iframe>
+ <button class="foxyiz-ai-fab" title="FoXYiZ AI Assistant"><i class="fas fa-robot"></i></button><div class="foxyiz-ai-panel">
+      <div class="foxyiz-ai-header">
+        <div class="foxyiz-ai-title"><i class="fas fa-robot"></i> AI Assistant</div>
+        <button class="foxyiz-ai-close" aria-label="Close">✕</button>
+      </div>
+      <div class="foxyiz-ai-status" id="foxyiz-ai-status">Using built-in fallback</div>
+      <div class="foxyiz-ai-messages" id="foxyiz-ai-messages"></div>
+      <div class="foxyiz-ai-input">
+        <textarea class="foxyiz-ai-textarea" id="foxyiz-ai-textarea" placeholder="Ask about your workflows..." rows="1"></textarea>
+        <button class="foxyiz-ai-send" id="foxyiz-ai-send"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div></body></html>

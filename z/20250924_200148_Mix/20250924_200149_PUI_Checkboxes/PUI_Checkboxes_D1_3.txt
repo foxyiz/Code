@@ -1,0 +1,1 @@
+Error in xClick: xClick failed for locator 'css==input[type="checkbox"]:nth-child(1)': Message: [Artifacts => screenshot: None_None_200211.png | page: None_None_200211.html | error: None_None_200211.txt] [Link to PUI_Checkboxes_D1_3.png]

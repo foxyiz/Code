@@ -1,0 +1,9 @@
+PlanId,PlanName,DesignId,Run,Tags,Output
+AI_SimplePrompt,Test Simple AI Prompt,D1,Y,AI,simple_response
+AI_ContextPrompt,Test AI with Context,D1,Y,AI,context_response
+AI_WeatherPrompt,Get Weather Info,D1,Y,AI,weather_response
+AI_NewsPrompt,Get News Headlines,D1,Y,AI,news_response
+AI_CricketPrompt,Get Cricket Info,D1,Y,AI,cricket_response
+AI_MathPrompt,AI Math Assistant,D1,Y,AI,math_response
+AI_CodePrompt,AI Code Helper,D1,Y,AI,code_response
+AI_SummaryPrompt,AI Document Summary,D1,Y,AI,summary_response

@@ -1,0 +1,1 @@
+Error in xPower: Non-numeric input: ['vRateFactor', '2.0']

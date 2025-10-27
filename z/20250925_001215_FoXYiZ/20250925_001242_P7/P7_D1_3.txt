@@ -1,0 +1,1 @@
+Error in xType: xType failed for locator 'automation': Message: [Artifacts => screenshot: None_None_001300.png | page: None_None_001300.html | error: None_None_001300.txt] [Link to P7_D1_3.png]
