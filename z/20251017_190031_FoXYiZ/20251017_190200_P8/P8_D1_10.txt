@@ -1,1 +1,0 @@
-Error in xWaitFor: xWaitFor failed for locator 'css==.success-message': Message: [Artifacts => screenshot: None_None_190330.png | page: None_None_190330.html | error: None_None_190330.txt] [Link to P8_D1_10.png]

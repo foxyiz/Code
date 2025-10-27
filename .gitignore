@@ -1,0 +1,29 @@
+# Virtual environment
+venv/
+
+# Build artifacts
+build/
+dist/
+
+# Others
+_others/
+
+# Git directory
+.git/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+

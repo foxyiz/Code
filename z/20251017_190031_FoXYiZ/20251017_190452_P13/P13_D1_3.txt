@@ -1,1 +1,0 @@
-Error in xClick: xClick failed for locator 'css==a[href="ai.html"]': Message: [Artifacts => screenshot: None_None_190514.png | page: None_None_190514.html | error: None_None_190514.txt] [Link to P13_D1_3.png]

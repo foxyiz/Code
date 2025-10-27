@@ -1,8 +1,0 @@
-⚡
-F - Automation Engine
-The heart of FoXYiZ. Download our executable engine and run automations locally or in the cloud.
-What you get:
-Standalone executable (foxyiz.exe)
-Cloud execution on AWS EC2
-Local execution capability
-Demo templates included

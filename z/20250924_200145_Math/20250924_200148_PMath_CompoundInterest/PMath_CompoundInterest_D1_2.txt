@@ -1,1 +1,0 @@
-Error in xAdd: Non-numeric input: ['vOne', 'vRateDecimal']

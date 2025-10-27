@@ -1,1 +1,0 @@
-xGetText failed for locator 'css==h1': Message:

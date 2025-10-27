@@ -1,3 +1,0 @@
-Time,PlanId,DesignId,StepId,ActionType,ActionName,StepInfo,Output
-2025-09-24 20:01:44,P2,D1,3,xUI,xClick,,Error in xClick: xClick failed for locator 'css==a[href="/f.html"]': Message: [Artifacts => screenshot: None_None_200143.png | page: None_No [Link to P2_D1_3.txt]
-2025-09-24 20:01:45,P7,D1,3,xUI,xType,,Error in xType: xType failed for locator 'test query': Message: [Artifacts => screenshot: None_None_200145.png | page: None_None_200145.html [Link to P7_D1_3.txt]

@@ -1,1 +1,0 @@
-xType failed for locator 'xpath==//input[@placeholder='Search']': Message:

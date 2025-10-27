@@ -1,1 +1,0 @@
-Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(), 'Dashboard')]': Message: [Artifacts => screenshot: None_None_000328.png | page: None_None_000328.html | error: None_None_000328.txt] [Link to PLoginTest_D1_6.png]

@@ -1,1 +1,0 @@
-Error in xClick: xClick failed for locator 'xpath==//button[normalize-space(.)='Add YPAD Set']': Message: [Artifacts => screenshot: None_None_190312.png | page: None_None_190312.html | error: None_None_190312.txt] [Link to P8_D1_9.png]

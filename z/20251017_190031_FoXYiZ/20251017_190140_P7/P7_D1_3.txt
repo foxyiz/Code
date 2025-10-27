@@ -1,1 +1,0 @@
-Error in xType: xType failed for locator 'xpath==//input[@placeholder='Search']': Message: [Artifacts => screenshot: None_None_190159.png | page: None_None_190159.html | error: None_None_190159.txt] [Link to P7_D1_3.png]

@@ -1,7 +1,0 @@
-Time,PlanId,DesignId,StepId,ActionType,ActionName,StepInfo,Output
-2025-09-25 00:03:29,PLoginTest,D1,6,xUI,xWaitFor,,Error in xWaitFor: xWaitFor failed for locator 'xpath==//div[contains(text(); 'Dashboard')]': Message: [Artifacts => screenshot: None_None_0 [Link to PLoginTest_D1_6.txt]
-2025-09-25 00:03:30,PUI_AddRemoveElements,D1,2,xUI,xNavigate,,Error in xNavigate: Invalid URL: hk_add_remove_elements_url. Must start with http:// or https:// [Link to PUI_AddRemoveElements_D1_2.png]
-2025-09-25 00:03:30,PUI_Checkboxes,D1,2,xUI,xNavigate,,Error in xNavigate: Invalid URL: hk_checkboxes_url. Must start with http:// or https:// [Link to PUI_Checkboxes_D1_2.png]
-2025-09-25 00:03:34,PAPI_UserGet,D1,1,xAPI,xGet,,401
-2025-09-25 00:03:35,PAPI_UsersGet,D1,1,xAPI,xGet,,401
-2025-09-25 00:03:36,PAPI_UserCreate,D1,1,xAPI,xPost,,401
