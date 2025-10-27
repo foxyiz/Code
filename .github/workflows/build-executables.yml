@@ -1,0 +1,103 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: Foxyiz-linux
+            executable_name: Foxyiz
+          - os: windows-latest
+            artifact_name: Foxyiz-windows
+            executable_name: Foxyiz.exe
+          - os: macos-latest
+            artifact_name: Foxyiz-macos
+            executable_name: Foxyiz
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Setup Chrome (Linux)
+      if: runner.os == 'Linux'
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
+    - name: Setup Chrome (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install --cask google-chrome
+
+    - name: Setup Chrome (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        choco install googlechrome -y
+
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller --name=Foxyiz --onefile --add-data="x:x" --add-data="y:y" --hidden-import=x.xActions fEngine.py
+
+    - name: List dist directory (Debug)
+      run: |
+        ls -la dist/
+      shell: bash
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: dist/${{ matrix.executable_name }}
+        if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: List artifacts (Debug)
+      run: |
+        ls -la artifacts/
+        find artifacts/ -type f
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/Foxyiz-linux/Foxyiz
+          artifacts/Foxyiz-windows/Foxyiz.exe
+          artifacts/Foxyiz-macos/Foxyiz
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
