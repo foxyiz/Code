@@ -74,11 +74,22 @@ action_cache = {}
 
 def _resource_path(relative_path):
     """Get absolute path to resource, works for dev and PyInstaller."""
-    try:
-        base_path = sys._MEIPASS  # type: ignore[attr-defined]
-    except Exception:
-        base_path = os.path.abspath(os.path.dirname(sys.executable)) if getattr(sys, 'frozen', False) else os.path.abspath(os.path.dirname(__file__))
-    return os.path.abspath(os.path.join(base_path, relative_path))
+    # If running as PyInstaller executable
+    if getattr(sys, 'frozen', False):
+        # First try the bundled resources in _MEIPASS
+        try:
+            bundled_path = os.path.abspath(os.path.join(sys._MEIPASS, relative_path))  # type: ignore[attr-defined]
+            if os.path.exists(bundled_path):
+                return bundled_path
+        except Exception:
+            pass
+        # Fall back to exe directory for non-bundled files (like y/ directory)
+        exe_dir = os.path.abspath(os.path.dirname(sys.executable))
+        return os.path.abspath(os.path.join(exe_dir, relative_path))
+    else:
+        # Development mode: use script directory
+        base_path = os.path.abspath(os.path.dirname(__file__))
+        return os.path.abspath(os.path.join(base_path, relative_path))
 
 def load_config(config_path):
     """Load configuration from a JSON file."""
