@@ -75,8 +75,8 @@ Each build produces:
 
 All executables are standalone and include:
 - Python runtime
-- All dependencies (pandas, requests, selenium)
-- The `x/` and `y/` data directories
+- All dependencies (pandas, numpy, selenium, requests, urllib3)
+- Required files from `x/`, `y/`, and `z/` directories
 
 ## Local Building
 
@@ -86,8 +86,8 @@ To build locally:
 # Install dependencies
 pip install -r requirements.txt
 
-# Build executable
-pyinstaller --name=Foxyiz --onefile --add-data="x:x" --add-data="y:y" --hidden-import=x.xActions fEngine.py
+# Build executable (Unix: macOS/Linux)
+pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "y:y" --add-data "z/zDash_template.html:z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
 
 # Find executable in dist/ directory
 ```
@@ -95,7 +95,7 @@ pyinstaller --name=Foxyiz --onefile --add-data="x:x" --add-data="y:y" --hidden-i
 Note: On Unix-based systems (macOS/Linux), use `:` as path separator. On Windows, use `;`:
 ```bash
 # Windows
-pyinstaller --name=Foxyiz --onefile --add-data="x;x" --add-data="y;y" --hidden-import=x.xActions fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
 ```
 
 ## Troubleshooting
