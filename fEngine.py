@@ -123,13 +123,23 @@ def load_csv(file_path):
 
 def generate_dashboard(df, output_dir, ypad_name):
     """Generate HTML dashboard from results DataFrame."""
+    # Count unique plan definitions, not executions
+    # Get one row per plan execution (DesignId, PlanId combination)
+    plan_executions = df.groupby(['DesignId', 'PlanId']).first().reset_index()
+    
+    # Determine status for each unique plan (Pass if all executions passed, Fail if any failed)
+    plan_status = plan_executions.groupby('PlanId')['Result'].apply(
+        lambda x: 'Pass' if all(x == 'Pass') else 'Fail' if any(x == 'Fail') else 'Pending'
+    )
+    
+    unique_plans = df['PlanId'].unique()
     summary_plans = {
-        "Total": len(df['PlanId'].unique()),
-        "Executed": len(df[df['Result'].notna()]['PlanId'].unique()),
-        "Pending": len(df[df['Result'].isna()]['PlanId'].unique()),
+        "Total": len(unique_plans),
+        "Executed": len(plan_status[plan_status.isin(['Pass', 'Fail'])]),
+        "Pending": len(plan_status[plan_status == 'Pending']),
         "Time Taken (s)": round(df['TimeTaken'].sum(), 2),
-        "Pass": len(df[df['Result'] == 'Pass']['PlanId'].unique()),
-        "Fail": len(df[df['Result'] == 'Fail']['PlanId'].unique())
+        "Pass": len(plan_status[plan_status == 'Pass']),
+        "Fail": len(plan_status[plan_status == 'Fail'])
     }
     summary_actions = {
         "Total": len(df),
@@ -185,7 +195,8 @@ def generate_dashboard(df, output_dir, ypad_name):
     """
 
     plan_rows = ""
-    for _, row in df.groupby(['DesignId', 'PlanId']).first().reset_index().iterrows():
+    plan_executions = df.groupby(['DesignId', 'PlanId']).last().reset_index()  # Use last() to get final step output
+    for _, row in plan_executions.iterrows():
         plan_rows += f"<tr><td>{row['DesignId']}</td><td>{row['PlanId']}</td><td>{row.get('Output', '')}</td><td>{row['Result']}</td><td>{round(row['TimeTaken'], 2)}</td></tr>\n"
 
     action_rows = ""
@@ -428,9 +439,15 @@ def main():
             pass
         
         # Calculate and show summary
-        total_plans = len(plans_to_run)
-        passed_plans = len(df.groupby(['DesignId', 'PlanId']).first().reset_index()[df.groupby(['DesignId', 'PlanId']).first().reset_index()['Result'] == 'Pass'])
-        failed_plans = total_plans - passed_plans
+        # Count unique plan definitions, not executions
+        plan_executions = df.groupby(['DesignId', 'PlanId']).first().reset_index()
+        # Determine status for each unique plan (Pass if all executions passed, Fail if any failed)
+        plan_status = plan_executions.groupby('PlanId')['Result'].apply(
+            lambda x: 'Pass' if all(x == 'Pass') else 'Fail' if any(x == 'Fail') else 'Pending'
+        )
+        total_plans = len(plan_status)
+        passed_plans = len(plan_status[plan_status == 'Pass'])
+        failed_plans = len(plan_status[plan_status == 'Fail'])
         total_time = time.time() - start_time
         
         dashboard_path = os.path.join(output_dir, f"{ypad_name}_zDash.html")
