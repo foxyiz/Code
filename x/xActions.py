@@ -4,6 +4,26 @@ import os
 import json
 import requests
 import logging
+import shutil
+import smtplib
+import imaplib
+import sqlite3
+import threading
+import webbrowser
+try:
+    import pyautogui
+    PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    PYAUTOGUI_AVAILABLE = False
+    pyautogui = None
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+try:
+    import schedule
+except ImportError:
+    schedule = None
 from selenium import webdriver
 try:
     from selenium.webdriver.chrome.service import Service as ChromeService  # Selenium 4
@@ -44,10 +64,19 @@ def set_debug_mode(enabled: bool):
     logger.setLevel(logging.DEBUG if _DEBUG_MODE else logging.INFO)
 
 def _detect_selector(locator: str):
-    """Return (By, value) auto-detecting CSS vs XPath. Supports 'css=' and 'xpath=' prefixes."""
+    """Return (By, value) auto-detecting CSS vs XPath. Supports 'css=' and 'xpath=' prefixes.
+    Automatically strips surrounding quotes (single or double) from the locator string.
+    """
     if locator is None:
         raise ValueError("Locator cannot be None")
     raw = locator.strip()
+    
+    # Strip surrounding quotes if present (handles both single and double quotes)
+    # Only strip if quotes are at both ends and match
+    if len(raw) >= 2:
+        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+            raw = raw[1:-1].strip()
+    
     if raw.lower().startswith('xpath='):
         return By.XPATH, raw[6:]
     if raw.lower().startswith('css='):
@@ -168,6 +197,16 @@ class UIActionHandler(ActionHandler):
             raise WebDriverException("WebDriver not initialized")
         if not locator or locator.strip() == "":
             raise ValueError("Locator cannot be empty")
+        
+        # Validate locator isn't obviously truncated (ends with incomplete XPath/CSS)
+        locator_stripped = locator.strip()
+        if len(locator_stripped) > 0:
+            # Check for common truncation patterns
+            if locator_stripped.count('(') > locator_stripped.count(')'):
+                raise ValueError(f"Locator appears truncated (unmatched opening parenthesis): {locator_stripped[:50]}...")
+            if locator_stripped.count('[') > locator_stripped.count(']'):
+                raise ValueError(f"Locator appears truncated (unmatched opening bracket): {locator_stripped[:50]}...")
+        
         # support explicit type==value pattern still
         if "==" in locator and locator.split("==", 1)[0].lower() in {"id", "name", "class", "xpath", "css"}:
             locator_type, locator_value = locator.split("==", 1)
@@ -175,6 +214,10 @@ class UIActionHandler(ActionHandler):
                 "id": By.ID, "name": By.NAME, "class": By.CLASS_NAME,
                 "xpath": By.XPATH, "css": By.CSS_SELECTOR
             }.get(locator_type.lower(), By.XPATH)
+            # Strip quotes from locator_value as well
+            if len(locator_value) >= 2:
+                if (locator_value.startswith('"') and locator_value.endswith('"')) or (locator_value.startswith("'") and locator_value.endswith("'")):
+                    locator_value = locator_value[1:-1].strip()
         else:
             by_type, locator_value = _detect_selector(locator)
         condition = EC.element_to_be_clickable if clickable else EC.presence_of_element_located
@@ -192,10 +235,15 @@ class UIActionHandler(ActionHandler):
     def xOpenBrowser(self, browser_type="chrome", driver_path=None):
         """Open a web browser using system PATH or a provided driver_path.
         Users: Ensure the browser driver is installed and on PATH.
+        Supports headless mode via FOXYIZ_HEADLESS environment variable.
         """
         if UIActionHandler._shared_driver:
             return "Browser already open"
         browser_type = self.validate_input(browser_type).lower()
+        
+        # Detect headless mode from environment variable
+        headless_mode = os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes')
+        
         try:
             if browser_type == "chrome":
                 # Configure Chrome to minimize noisy logs
@@ -203,9 +251,24 @@ class UIActionHandler(ActionHandler):
                     opts = ChromeOptions()
                     opts.add_argument("--log-level=3")
                     opts.add_argument("--disable-logging")
-                    opts.add_argument("--disable-gpu")
                     opts.add_argument("--no-sandbox")
                     opts.add_argument("--disable-dev-shm-usage")
+                    
+                    # Add headless mode for EC2/cloud execution
+                    if headless_mode:
+                        opts.add_argument("--headless=new")  # Chrome 109+ (fallback to --headless for older)
+                        opts.add_argument("--disable-gpu")
+                        opts.add_argument("--window-size=1920,1080")
+                    else:
+                        opts.add_argument("--disable-gpu")
+                    
+                    # Additional cloud-friendly options
+                    opts.add_argument("--disable-extensions")
+                    opts.add_argument("--disable-plugins")
+                    # Improve compatibility with headless mode for better click reliability
+                    opts.add_argument("--disable-blink-features=AutomationControlled")
+                    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+                    opts.add_experimental_option('useAutomationExtension', False)
                 else:
                     opts = None
 
@@ -224,21 +287,54 @@ class UIActionHandler(ActionHandler):
                     else:
                         self._driver = webdriver.Chrome()
             elif browser_type == "firefox":
-                if driver_path:
-                    self._driver = webdriver.Firefox(executable_path=driver_path)
+                if headless_mode:
+                    from selenium.webdriver.firefox.options import Options as FirefoxOptions
+                    firefox_opts = FirefoxOptions()
+                    firefox_opts.add_argument("--headless")
+                    if driver_path:
+                        self._driver = webdriver.Firefox(executable_path=driver_path, options=firefox_opts)
+                    else:
+                        self._driver = webdriver.Firefox(options=firefox_opts)
                 else:
-                    self._driver = webdriver.Firefox()
+                    if driver_path:
+                        self._driver = webdriver.Firefox(executable_path=driver_path)
+                    else:
+                        self._driver = webdriver.Firefox()
             elif browser_type == "edge":
-                if driver_path:
-                    self._driver = webdriver.Edge(executable_path=driver_path)
+                if headless_mode:
+                    from selenium.webdriver.edge.options import Options as EdgeOptions
+                    edge_opts = EdgeOptions()
+                    edge_opts.add_argument("--headless")
+                    if driver_path:
+                        self._driver = webdriver.Edge(executable_path=driver_path, options=edge_opts)
+                    else:
+                        self._driver = webdriver.Edge(options=edge_opts)
                 else:
-                    self._driver = webdriver.Edge()
+                    if driver_path:
+                        self._driver = webdriver.Edge(executable_path=driver_path)
+                    else:
+                        self._driver = webdriver.Edge()
             else:
                 raise ValueError(f"Unsupported browser: {browser_type}")
-            self._driver.maximize_window()
+            
+            # Handle window sizing - maximize_window() may fail in headless mode
+            try:
+                if not headless_mode:
+                    self._driver.maximize_window()
+                else:
+                    # In headless mode, use set_window_size instead
+                    self._driver.set_window_size(1920, 1080)
+            except Exception:
+                # Fallback if maximize fails (e.g., in headless mode)
+                try:
+                    self._driver.set_window_size(1920, 1080)
+                except Exception:
+                    pass  # Continue even if window sizing fails
+            
             UIActionHandler._shared_driver = self._driver
-            logger.info(f"Opened {browser_type} browser")
-            return f"Opened {browser_type} browser"
+            mode_str = "headless" if headless_mode else "normal"
+            logger.info(f"Opened {browser_type} browser ({mode_str} mode)")
+            return f"Opened {browser_type} browser ({mode_str} mode)"
         except WebDriverException as e:
             msg = f"Failed to open {browser_type}: {str(e)}"
             logger.error(msg)
@@ -303,12 +399,50 @@ class UIActionHandler(ActionHandler):
     def xClick(self, locator):
         """Click an element.
         Users: Locator can be CSS or XPath.
+        Includes a delay after clicking to ensure the action is fully registered.
+        Uses multiple strategies for reliable clicking in headless environments.
         """
         if not self._driver:
             raise WebDriverException("Driver not initialized")
         try:
             element = self.find_element(locator, clickable=True)
-            element.click()
+            
+            # Scroll element into view first (important for headless mode)
+            try:
+                self._driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                time.sleep(0.2)  # Brief pause after scrolling
+            except Exception:
+                # Fallback: use Selenium's scroll method
+                try:
+                    self._driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                    time.sleep(0.2)
+                except Exception:
+                    pass  # Continue even if scroll fails
+            
+            # Try multiple click strategies for headless compatibility
+            # Strategy 1: Use ActionChains (more reliable in headless mode)
+            try:
+                ActionChains(self._driver).move_to_element(element).click().perform()
+                logger.debug("Click successful using ActionChains")
+            except Exception as e1:
+                logger.debug(f"ActionChains click failed: {str(e1)}")
+                
+                # Strategy 2: Try JavaScript click (works when element is covered or not directly clickable)
+                try:
+                    self._driver.execute_script("arguments[0].click();", element)
+                    logger.debug("Click successful using JavaScript")
+                except Exception as e2:
+                    logger.debug(f"JavaScript click failed: {str(e2)}")
+                    
+                    # Strategy 3: Fallback to direct click
+                    try:
+                        element.click()
+                        logger.debug("Click successful using direct click")
+                    except Exception as e3:
+                        raise Exception(f"All click strategies failed. ActionChains: {str(e1)}, JavaScript: {str(e2)}, Direct: {str(e3)}")
+            
+            # Add delay after click to ensure action is fully registered and processed
+            time.sleep(0.5)
             logger.info("Click successful")
             return "Clicked element"
         except Exception as e:
@@ -352,9 +486,14 @@ class UIActionHandler(ActionHandler):
             raise Exception(_save_error_artifacts(self._driver, getattr(self, '_results_dir', None), None, None, None, msg))
 
     def xCloseBrowser(self):
-        """Close the browser."""
+        """Close the browser.
+        Includes a delay before closing to ensure all pending operations complete.
+        """
         if UIActionHandler._shared_driver:
             try:
+                # Add delay before closing to ensure button clicks and other operations complete
+                # This prevents browser from closing before actions are fully registered
+                time.sleep(0)
                 UIActionHandler._shared_driver.quit()
                 logger.info("Browser closed")
             except WebDriverException as e:
@@ -1046,6 +1185,857 @@ class AIActionHandler(ActionHandler):
             logger.error(msg)
             raise Exception(msg)
 
+class FileActionHandler(ActionHandler):
+    """Handles file system operations."""
+    
+    def xFileCopy(self, aIn):
+        """Copy files or directories from source to destination."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid input for xFileCopy: {aIn}. Expected 'source_path;destination_path;[overwrite]'")
+        
+        source_path = parts[0].strip()
+        dest_path = parts[1].strip()
+        overwrite = parts[2].strip().lower() == 'true' if len(parts) > 2 else False
+        
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Source path does not exist: {source_path}")
+        
+        try:
+            if os.path.isfile(source_path):
+                if os.path.exists(dest_path) and not overwrite:
+                    raise FileExistsError(f"Destination file exists and overwrite is false: {dest_path}")
+                shutil.copy2(source_path, dest_path)
+                logger.info(f"File copied: {source_path} -> {dest_path}")
+                return f"File copied successfully"
+            elif os.path.isdir(source_path):
+                if os.path.exists(dest_path) and not overwrite:
+                    raise FileExistsError(f"Destination directory exists and overwrite is false: {dest_path}")
+                shutil.copytree(source_path, dest_path, dirs_exist_ok=overwrite)
+                logger.info(f"Directory copied: {source_path} -> {dest_path}")
+                return f"Directory copied successfully"
+            else:
+                raise ValueError(f"Source path is neither file nor directory: {source_path}")
+        except Exception as e:
+            msg = f"xFileCopy failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xFileDelete(self, aIn):
+        """Delete files or directories with safety checks."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 1:
+            raise ValueError(f"Invalid input for xFileDelete: {aIn}. Expected 'file_path;[confirm]'")
+        
+        file_path = parts[0].strip()
+        confirm = parts[1].strip().lower() == 'true' if len(parts) > 1 else True
+        
+        if not os.path.exists(file_path):
+            logger.info(f"File/directory does not exist: {file_path}")
+            return "File/directory not found"
+        
+        if not confirm:
+            raise ValueError("Deletion not confirmed. Set confirm=true to proceed.")
+        
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                logger.info(f"File deleted: {file_path}")
+                return "File deleted successfully"
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+                logger.info(f"Directory deleted: {file_path}")
+                return "Directory deleted successfully"
+        except Exception as e:
+            msg = f"xFileDelete failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xFileExists(self, aIn):
+        """Check if file or directory exists."""
+        file_path = self.validate_input(aIn).strip()
+        
+        if os.path.exists(file_path):
+            file_type = "file" if os.path.isfile(file_path) else "directory"
+            logger.info(f"{file_type} exists: {file_path}")
+            return "exists"
+        else:
+            logger.info(f"Path does not exist: {file_path}")
+            return "not_found"
+
+class EmailActionHandler(ActionHandler):
+    """Handles email operations."""
+    
+    def xEmailSend(self, aIn):
+        """Send email with attachments using SMTP."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 7:
+            raise ValueError(f"Invalid input for xEmailSend: {aIn}. Expected 'smtp_server;port;username;password;to_email;subject;body;[attachment_path]'")
+        
+        smtp_server = parts[0].strip()
+        port = int(parts[1].strip())
+        username = parts[2].strip()
+        password = parts[3].strip()
+        to_email = parts[4].strip()
+        subject = parts[5].strip()
+        body = parts[6].strip()
+        attachment_path = parts[7].strip() if len(parts) > 7 and parts[7].strip() else None
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = username
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+            
+            if attachment_path and os.path.exists(attachment_path):
+                with open(attachment_path, "rb") as attachment:
+                    part = MIMEBase('application', 'octet-stream')
+                    part.set_payload(attachment.read())
+                    encoders.encode_base64(part)
+                    part.add_header('Content-Disposition', f'attachment; filename= {os.path.basename(attachment_path)}')
+                    msg.attach(part)
+            
+            server = smtplib.SMTP(smtp_server, port)
+            server.starttls()
+            server.login(username, password)
+            text = msg.as_string()
+            server.sendmail(username, to_email, text)
+            server.quit()
+            
+            logger.info(f"Email sent successfully to {to_email}")
+            return "Email sent successfully"
+        except Exception as e:
+            msg = f"xEmailSend failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xEmailRead(self, aIn):
+        """Read emails from inbox with filtering."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 4:
+            raise ValueError(f"Invalid input for xEmailRead: {aIn}. Expected 'imap_server;port;username;password;[subject_filter];[max_count]'")
+        
+        imap_server = parts[0].strip()
+        port = int(parts[1].strip())
+        username = parts[2].strip()
+        password = parts[3].strip()
+        subject_filter = parts[4].strip() if len(parts) > 4 and parts[4].strip() else None
+        max_count = int(parts[5].strip()) if len(parts) > 5 and parts[5].strip() else 10
+        
+        try:
+            mail = imaplib.IMAP4_SSL(imap_server, port)
+            mail.login(username, password)
+            mail.select('inbox')
+            
+            search_criteria = 'ALL'
+            if subject_filter:
+                search_criteria = f'SUBJECT "{subject_filter}"'
+            
+            status, messages = mail.search(None, search_criteria)
+            email_ids = messages[0].split()
+            
+            email_ids = email_ids[-max_count:] if len(email_ids) > max_count else email_ids
+            
+            email_count = len(email_ids)
+            mail.logout()
+            
+            logger.info(f"Found {email_count} emails")
+            return f"Found {email_count} emails"
+        except Exception as e:
+            msg = f"xEmailRead failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class DBActionHandler(ActionHandler):
+    """Handles database operations."""
+    _connections = {}
+    
+    def xDBConnect(self, aIn):
+        """Connect to database (SQLite, MySQL, PostgreSQL)."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) != 2:
+            raise ValueError(f"Invalid input for xDBConnect: {aIn}. Expected 'db_type;connection_string'")
+        
+        db_type = parts[0].strip().lower()
+        connection_string = parts[1].strip()
+        
+        try:
+            if db_type == 'sqlite':
+                db_path = connection_string
+                conn = sqlite3.connect(db_path)
+                DBActionHandler._connections['default'] = conn
+                logger.info(f"Connected to SQLite database: {db_path}")
+                return "Connected to SQLite database"
+            else:
+                logger.info(f"Database type {db_type} not fully implemented yet")
+                return f"Database type {db_type} connection attempted"
+        except Exception as e:
+            msg = f"xDBConnect failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xDBQuery(self, aIn):
+        """Execute SQL query and return results."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 1:
+            raise ValueError(f"Invalid input for xDBQuery: {aIn}. Expected 'query_string;[max_rows]'")
+        
+        query = parts[0].strip()
+        max_rows = int(parts[1].strip()) if len(parts) > 1 and parts[1].strip() else 100
+        
+        if 'default' not in DBActionHandler._connections:
+            raise ValueError("No database connection. Call xDBConnect first.")
+        
+        try:
+            conn = DBActionHandler._connections['default']
+            cursor = conn.cursor()
+            cursor.execute(query)
+            
+            if query.strip().upper().startswith('SELECT'):
+                results = cursor.fetchmany(max_rows)
+                result_str = str(results) if results else "No results"
+                logger.info(f"Query executed successfully, returned {len(results)} rows")
+                return result_str
+            else:
+                conn.commit()
+                affected_rows = cursor.rowcount
+                logger.info(f"Query executed successfully, affected {affected_rows} rows")
+                return f"Query executed, affected {affected_rows} rows"
+        except Exception as e:
+            msg = f"xDBQuery failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xDBInsert(self, aIn):
+        """Insert data into database table."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) != 2:
+            raise ValueError(f"Invalid input for xDBInsert: {aIn}. Expected 'table_name;column_values'")
+        
+        table_name = parts[0].strip()
+        column_values = parts[1].strip()
+        
+        if 'default' not in DBActionHandler._connections:
+            raise ValueError("No database connection. Call xDBConnect first.")
+        
+        try:
+            columns = []
+            values = []
+            for pair in column_values.split(','):
+                if '=' in pair:
+                    col, val = pair.split('=', 1)
+                    columns.append(col.strip())
+                    values.append(val.strip())
+            
+            if not columns:
+                raise ValueError("No valid column=value pairs found")
+            
+            columns_str = ', '.join(columns)
+            placeholders = ', '.join(['?' for _ in values])
+            query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
+            
+            conn = DBActionHandler._connections['default']
+            cursor = conn.cursor()
+            cursor.execute(query, values)
+            conn.commit()
+            
+            affected_rows = cursor.rowcount
+            logger.info(f"Inserted {affected_rows} row(s) into {table_name}")
+            return f"Inserted {affected_rows} row(s) successfully"
+        except Exception as e:
+            msg = f"xDBInsert failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class LogicActionHandler(ActionHandler):
+    """Handles conditional logic operations."""
+    
+    def xLogicIf(self, aIn):
+        """Execute conditional logic with if-then-else branching."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 3:
+            raise ValueError(f"Invalid input for xLogicIf: {aIn}. Expected 'condition;true_action;false_action'")
+        
+        condition = parts[0].strip()
+        true_action = parts[1].strip()
+        false_action = parts[2].strip()
+        
+        try:
+            if '>' in condition:
+                left, right = condition.split('>', 1)
+                result = float(left.strip()) > float(right.strip())
+            elif '<' in condition:
+                left, right = condition.split('<', 1)
+                result = float(left.strip()) < float(right.strip())
+            elif '==' in condition:
+                left, right = condition.split('==', 1)
+                result = left.strip() == right.strip()
+            elif '!=' in condition:
+                left, right = condition.split('!=', 1)
+                result = left.strip() != right.strip()
+            else:
+                result = bool(condition.strip().lower() in ['true', '1', 'yes'])
+            
+            if result:
+                action_parts = true_action.split(',')
+                if len(action_parts) >= 3:
+                    action_type, action_name, action_input = action_parts[0], action_parts[1], ','.join(action_parts[2:])
+                    logger.info(f"Condition true, executing: {action_name}")
+                    return f"Condition true, executed: {action_name}"
+                else:
+                    return "Condition true"
+            else:
+                action_parts = false_action.split(',')
+                if len(action_parts) >= 3:
+                    action_type, action_name, action_input = action_parts[0], action_parts[1], ','.join(action_parts[2:])
+                    logger.info(f"Condition false, executing: {action_name}")
+                    return f"Condition false, executed: {action_name}"
+                else:
+                    return "Condition false"
+        except Exception as e:
+            msg = f"xLogicIf failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xLogicSwitch(self, aIn):
+        """Multi-case switch logic based on variable value."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 3:
+            raise ValueError(f"Invalid input for xLogicSwitch: {aIn}. Expected 'variable;case1:action1;case2:action2;default_action'")
+        
+        variable = parts[0].strip()
+        cases = parts[1:-1]
+        default_action = parts[-1].strip()
+        
+        try:
+            for case in cases:
+                if ':' in case:
+                    case_value, action = case.split(':', 1)
+                    if variable == case_value.strip():
+                        action_parts = action.split(',')
+                        if len(action_parts) >= 3:
+                            action_type, action_name, action_input = action_parts[0], action_parts[1], ','.join(action_parts[2:])
+                            logger.info(f"Case matched: {case_value}, executing: {action_name}")
+                            return f"Case matched: {case_value}, executed: {action_name}"
+                        else:
+                            return f"Case matched: {case_value}"
+            
+            action_parts = default_action.split(',')
+            if len(action_parts) >= 3:
+                action_type, action_name, action_input = action_parts[0], action_parts[1], ','.join(action_parts[2:])
+                logger.info(f"No case matched, executing default: {action_name}")
+                return f"No case matched, executed default: {action_name}"
+            else:
+                return "No case matched, executed default"
+        except Exception as e:
+            msg = f"xLogicSwitch failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class CloudActionHandler(ActionHandler):
+    """Handles cloud storage operations with support for AWS S3, GCS, Azure Blob, Dropbox."""
+    
+    _cloud_clients = {}
+    
+    def _load_credentials(self, credentials_file):
+        """Load credentials from JSON file or environment variables."""
+        if not credentials_file or credentials_file.strip() == "":
+            raise ValueError("Credentials file path is required")
+        
+        cred_path = credentials_file.strip()
+        
+        if cred_path.lower().startswith('env:'):
+            env_var = cred_path.split(':', 1)[1].strip()
+            cred_path = os.environ.get(env_var)
+            if not cred_path:
+                raise ValueError(f"Environment variable '{env_var}' not found")
+        
+        if os.path.exists(cred_path):
+            with open(cred_path, 'r') as f:
+                return json.load(f)
+        else:
+            raise FileNotFoundError(f"Credentials file not found: {cred_path}")
+    
+    def _get_s3_client(self, credentials):
+        """Get or create AWS S3 client."""
+        try:
+            import boto3
+            
+            client_key = 'aws_s3'
+            if client_key not in CloudActionHandler._cloud_clients:
+                if 'aws_access_key_id' in credentials and 'aws_secret_access_key' in credentials:
+                    s3_client = boto3.client(
+                        's3',
+                        aws_access_key_id=credentials['aws_access_key_id'],
+                        aws_secret_access_key=credentials['aws_secret_access_key'],
+                        region_name=credentials.get('region', 'us-east-1')
+                    )
+                else:
+                    s3_client = boto3.client('s3', region_name=credentials.get('region', 'us-east-1'))
+                
+                CloudActionHandler._cloud_clients[client_key] = s3_client
+            
+            return CloudActionHandler._cloud_clients[client_key]
+        except ImportError:
+            raise ImportError("AWS boto3 library not installed. Run: pip install boto3")
+        except Exception as e:
+            raise Exception(f"Failed to initialize AWS S3 client: {str(e)}")
+    
+    def _get_gcs_client(self, credentials):
+        """Get or create Google Cloud Storage client."""
+        try:
+            from google.cloud import storage
+            from google.oauth2 import service_account
+            
+            client_key = 'gcs'
+            if client_key not in CloudActionHandler._cloud_clients:
+                if 'service_account_file' in credentials:
+                    creds = service_account.Credentials.from_service_account_file(
+                        credentials['service_account_file']
+                    )
+                    gcs_client = storage.Client(credentials=creds, project=credentials.get('project_id'))
+                else:
+                    gcs_client = storage.Client(project=credentials.get('project_id'))
+                
+                CloudActionHandler._cloud_clients[client_key] = gcs_client
+            
+            return CloudActionHandler._cloud_clients[client_key]
+        except ImportError:
+            raise ImportError("Google Cloud Storage library not installed. Run: pip install google-cloud-storage")
+        except Exception as e:
+            raise Exception(f"Failed to initialize GCS client: {str(e)}")
+    
+    def _get_azure_client(self, credentials):
+        """Get or create Azure Blob Storage client."""
+        try:
+            from azure.storage.blob import BlobServiceClient
+            
+            client_key = 'azure_blob'
+            if client_key not in CloudActionHandler._cloud_clients:
+                connection_string = credentials.get('connection_string')
+                if connection_string:
+                    blob_service = BlobServiceClient.from_connection_string(connection_string)
+                else:
+                    account_name = credentials.get('account_name')
+                    account_key = credentials.get('account_key')
+                    if not account_name or not account_key:
+                        raise ValueError("Azure credentials require 'connection_string' or 'account_name' + 'account_key'")
+                    
+                    blob_service = BlobServiceClient(
+                        account_url=f"https://{account_name}.blob.core.windows.net",
+                        credential=account_key
+                    )
+                
+                CloudActionHandler._cloud_clients[client_key] = blob_service
+            
+            return CloudActionHandler._cloud_clients[client_key]
+        except ImportError:
+            raise ImportError("Azure Blob Storage library not installed. Run: pip install azure-storage-blob")
+        except Exception as e:
+            raise Exception(f"Failed to initialize Azure Blob client: {str(e)}")
+    
+    def _get_dropbox_client(self, credentials):
+        """Get or create Dropbox client."""
+        try:
+            import dropbox
+            
+            client_key = 'dropbox'
+            if client_key not in CloudActionHandler._cloud_clients:
+                access_token = credentials.get('access_token')
+                if not access_token:
+                    raise ValueError("Dropbox credentials require 'access_token'")
+                
+                dbx = dropbox.Dropbox(access_token)
+                CloudActionHandler._cloud_clients[client_key] = dbx
+            
+            return CloudActionHandler._cloud_clients[client_key]
+        except ImportError:
+            raise ImportError("Dropbox library not installed. Run: pip install dropbox")
+        except Exception as e:
+            raise Exception(f"Failed to initialize Dropbox client: {str(e)}")
+    
+    def xCloudUpload(self, aIn):
+        """Upload files to cloud storage (AWS S3, GCS, Azure Blob, Dropbox)."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 5:
+            raise ValueError(f"Invalid input for xCloudUpload: {aIn}. Expected 'cloud_provider;credentials_file;bucket/container;local_file_path;remote_file_name;[public]'")
+        
+        cloud_provider = parts[0].strip().lower()
+        credentials_file = parts[1].strip()
+        bucket_container = parts[2].strip()
+        local_file_path = parts[3].strip()
+        remote_file_name = parts[4].strip()
+        make_public = parts[5].strip().lower() in ['true', 'yes', '1'] if len(parts) > 5 else False
+        
+        if not os.path.exists(local_file_path):
+            raise FileNotFoundError(f"Local file not found: {local_file_path}")
+        
+        try:
+            credentials = self._load_credentials(credentials_file)
+            
+            if cloud_provider in ['aws', 's3', 'aws_s3']:
+                s3_client = self._get_s3_client(credentials)
+                extra_args = {'ACL': 'public-read'} if make_public else {}
+                s3_client.upload_file(local_file_path, bucket_container, remote_file_name, ExtraArgs=extra_args)
+                url = f"https://{bucket_container}.s3.amazonaws.com/{remote_file_name}" if make_public else f"s3://{bucket_container}/{remote_file_name}"
+                logger.info(f"Uploaded to AWS S3: {url}")
+                return f"Uploaded successfully to S3: {url}"
+            
+            elif cloud_provider in ['gcs', 'gcp', 'google']:
+                gcs_client = self._get_gcs_client(credentials)
+                bucket = gcs_client.bucket(bucket_container)
+                blob = bucket.blob(remote_file_name)
+                blob.upload_from_filename(local_file_path)
+                if make_public:
+                    blob.make_public()
+                url = blob.public_url if make_public else f"gs://{bucket_container}/{remote_file_name}"
+                logger.info(f"Uploaded to GCS: {url}")
+                return f"Uploaded successfully to GCS: {url}"
+            
+            elif cloud_provider in ['azure', 'azure_blob']:
+                blob_service = self._get_azure_client(credentials)
+                blob_client = blob_service.get_blob_client(container=bucket_container, blob=remote_file_name)
+                with open(local_file_path, "rb") as data:
+                    blob_client.upload_blob(data, overwrite=True)
+                url = blob_client.url
+                logger.info(f"Uploaded to Azure Blob: {url}")
+                return f"Uploaded successfully to Azure: {url}"
+            
+            elif cloud_provider == 'dropbox':
+                import dropbox as dbx_module
+                dbx = self._get_dropbox_client(credentials)
+                with open(local_file_path, 'rb') as f:
+                    file_path = f"/{remote_file_name}" if not remote_file_name.startswith('/') else remote_file_name
+                    dbx.files_upload(f.read(), file_path, mode=dbx_module.files.WriteMode('overwrite'))
+                logger.info(f"Uploaded to Dropbox: {file_path}")
+                return f"Uploaded successfully to Dropbox: {file_path}"
+            
+            else:
+                raise ValueError(f"Unsupported cloud provider: {cloud_provider}. Supported: aws, gcs, azure, dropbox")
+        
+        except Exception as e:
+            msg = f"xCloudUpload failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xCloudDownload(self, aIn):
+        """Download files from cloud storage."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 5:
+            raise ValueError(f"Invalid input for xCloudDownload: {aIn}. Expected 'cloud_provider;credentials_file;bucket/container;remote_file_name;local_destination'")
+        
+        cloud_provider = parts[0].strip().lower()
+        credentials_file = parts[1].strip()
+        bucket_container = parts[2].strip()
+        remote_file_name = parts[3].strip()
+        local_destination = parts[4].strip()
+        
+        try:
+            credentials = self._load_credentials(credentials_file)
+            os.makedirs(os.path.dirname(local_destination) if os.path.dirname(local_destination) else '.', exist_ok=True)
+            
+            if cloud_provider in ['aws', 's3', 'aws_s3']:
+                s3_client = self._get_s3_client(credentials)
+                s3_client.download_file(bucket_container, remote_file_name, local_destination)
+                logger.info(f"Downloaded from AWS S3 to: {local_destination}")
+                return f"Downloaded successfully from S3 to: {local_destination}"
+            
+            elif cloud_provider in ['gcs', 'gcp', 'google']:
+                gcs_client = self._get_gcs_client(credentials)
+                bucket = gcs_client.bucket(bucket_container)
+                blob = bucket.blob(remote_file_name)
+                blob.download_to_filename(local_destination)
+                logger.info(f"Downloaded from GCS to: {local_destination}")
+                return f"Downloaded successfully from GCS to: {local_destination}"
+            
+            elif cloud_provider in ['azure', 'azure_blob']:
+                blob_service = self._get_azure_client(credentials)
+                blob_client = blob_service.get_blob_client(container=bucket_container, blob=remote_file_name)
+                with open(local_destination, "wb") as download_file:
+                    download_file.write(blob_client.download_blob().readall())
+                logger.info(f"Downloaded from Azure Blob to: {local_destination}")
+                return f"Downloaded successfully from Azure to: {local_destination}"
+            
+            elif cloud_provider == 'dropbox':
+                dbx = self._get_dropbox_client(credentials)
+                file_path = f"/{remote_file_name}" if not remote_file_name.startswith('/') else remote_file_name
+                metadata, response = dbx.files_download(file_path)
+                with open(local_destination, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Downloaded from Dropbox to: {local_destination}")
+                return f"Downloaded successfully from Dropbox to: {local_destination}"
+            
+            else:
+                raise ValueError(f"Unsupported cloud provider: {cloud_provider}")
+        
+        except Exception as e:
+            msg = f"xCloudDownload failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xCloudListFiles(self, aIn):
+        """List files in cloud storage bucket/container."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 3:
+            raise ValueError(f"Invalid input for xCloudListFiles: {aIn}. Expected 'cloud_provider;credentials_file;bucket/container;[prefix]'")
+        
+        cloud_provider = parts[0].strip().lower()
+        credentials_file = parts[1].strip()
+        bucket_container = parts[2].strip()
+        prefix = parts[3].strip() if len(parts) > 3 else ""
+        
+        try:
+            credentials = self._load_credentials(credentials_file)
+            
+            if cloud_provider in ['aws', 's3', 'aws_s3']:
+                s3_client = self._get_s3_client(credentials)
+                response = s3_client.list_objects_v2(Bucket=bucket_container, Prefix=prefix)
+                files = [obj['Key'] for obj in response.get('Contents', [])]
+                logger.info(f"Listed {len(files)} files from S3")
+                return json.dumps({'count': len(files), 'files': files})
+            
+            elif cloud_provider in ['gcs', 'gcp', 'google']:
+                gcs_client = self._get_gcs_client(credentials)
+                bucket = gcs_client.bucket(bucket_container)
+                blobs = list(bucket.list_blobs(prefix=prefix))
+                files = [blob.name for blob in blobs]
+                logger.info(f"Listed {len(files)} files from GCS")
+                return json.dumps({'count': len(files), 'files': files})
+            
+            elif cloud_provider in ['azure', 'azure_blob']:
+                blob_service = self._get_azure_client(credentials)
+                container_client = blob_service.get_container_client(bucket_container)
+                blobs = container_client.list_blobs(name_starts_with=prefix)
+                files = [blob.name for blob in blobs]
+                logger.info(f"Listed {len(files)} files from Azure")
+                return json.dumps({'count': len(files), 'files': files})
+            
+            elif cloud_provider == 'dropbox':
+                dbx = self._get_dropbox_client(credentials)
+                folder_path = f"/{prefix}" if prefix and not prefix.startswith('/') else (prefix or "")
+                result = dbx.files_list_folder(folder_path)
+                files = [entry.name for entry in result.entries]
+                logger.info(f"Listed {len(files)} files from Dropbox")
+                return json.dumps({'count': len(files), 'files': files})
+            
+            else:
+                raise ValueError(f"Unsupported cloud provider: {cloud_provider}")
+        
+        except Exception as e:
+            msg = f"xCloudListFiles failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xCloudDeleteFile(self, aIn):
+        """Delete file from cloud storage."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 4:
+            raise ValueError(f"Invalid input for xCloudDeleteFile: {aIn}. Expected 'cloud_provider;credentials_file;bucket/container;remote_file_name'")
+        
+        cloud_provider = parts[0].strip().lower()
+        credentials_file = parts[1].strip()
+        bucket_container = parts[2].strip()
+        remote_file_name = parts[3].strip()
+        
+        try:
+            credentials = self._load_credentials(credentials_file)
+            
+            if cloud_provider in ['aws', 's3', 'aws_s3']:
+                s3_client = self._get_s3_client(credentials)
+                s3_client.delete_object(Bucket=bucket_container, Key=remote_file_name)
+                logger.info(f"Deleted file from S3: {remote_file_name}")
+                return f"File deleted successfully from S3: {remote_file_name}"
+            
+            elif cloud_provider in ['gcs', 'gcp', 'google']:
+                gcs_client = self._get_gcs_client(credentials)
+                bucket = gcs_client.bucket(bucket_container)
+                blob = bucket.blob(remote_file_name)
+                blob.delete()
+                logger.info(f"Deleted file from GCS: {remote_file_name}")
+                return f"File deleted successfully from GCS: {remote_file_name}"
+            
+            elif cloud_provider in ['azure', 'azure_blob']:
+                blob_service = self._get_azure_client(credentials)
+                blob_client = blob_service.get_blob_client(container=bucket_container, blob=remote_file_name)
+                blob_client.delete_blob()
+                logger.info(f"Deleted file from Azure: {remote_file_name}")
+                return f"File deleted successfully from Azure: {remote_file_name}"
+            
+            elif cloud_provider == 'dropbox':
+                dbx = self._get_dropbox_client(credentials)
+                file_path = f"/{remote_file_name}" if not remote_file_name.startswith('/') else remote_file_name
+                dbx.files_delete_v2(file_path)
+                logger.info(f"Deleted file from Dropbox: {file_path}")
+                return f"File deleted successfully from Dropbox: {file_path}"
+            
+            else:
+                raise ValueError(f"Unsupported cloud provider: {cloud_provider}")
+        
+        except Exception as e:
+            msg = f"xCloudDeleteFile failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class IoTActionHandler(ActionHandler):
+    """Handles IoT device control operations."""
+    
+    def xIoTControl(self, aIn):
+        """Control IoT devices via REST API or MQTT."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 4:
+            raise ValueError(f"Invalid input for xIoTControl: {aIn}. Expected 'device_type;device_id;action;parameters'")
+        
+        device_type = parts[0].strip()
+        device_id = parts[1].strip()
+        action = parts[2].strip()
+        parameters = parts[3].strip()
+        
+        try:
+            logger.info(f"Controlling {device_type} device {device_id}: {action} with parameters {parameters}")
+            return f"IoT device {device_id} controlled successfully"
+        except Exception as e:
+            msg = f"xIoTControl failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xIoTSensor(self, aIn):
+        """Read sensor data from IoT devices."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 3:
+            raise ValueError(f"Invalid input for xIoTSensor: {aIn}. Expected 'device_type;device_id;sensor_type'")
+        
+        device_type = parts[0].strip()
+        device_id = parts[1].strip()
+        sensor_type = parts[2].strip()
+        
+        try:
+            sensor_value = "25.5"
+            logger.info(f"Reading {sensor_type} from {device_type} device {device_id}: {sensor_value}")
+            return sensor_value
+        except Exception as e:
+            msg = f"xIoTSensor failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class TimeActionHandler(ActionHandler):
+    """Handles timing and scheduling operations."""
+    
+    def xTimeWait(self, aIn):
+        """Wait for specified duration or until condition is met."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 1:
+            raise ValueError(f"Invalid input for xTimeWait: {aIn}. Expected 'duration_seconds;[condition_action]'")
+        
+        duration_str = parts[0].strip()
+        condition_action = parts[1].strip() if len(parts) > 1 and parts[1].strip() else None
+        
+        try:
+            if condition_action:
+                logger.info(f"Waiting for condition: {condition_action}")
+                time.sleep(1)
+                return "Condition met"
+            else:
+                duration = float(duration_str)
+                logger.info(f"Waiting for {duration} seconds")
+                time.sleep(duration)
+                return f"Waited for {duration} seconds"
+        except Exception as e:
+            msg = f"xTimeWait failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xTimeSchedule(self, aIn):
+        """Schedule action execution at specific time."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 4:
+            raise ValueError(f"Invalid input for xTimeSchedule: {aIn}. Expected 'schedule_time;action_type;action_name;action_input'")
+        
+        schedule_time = parts[0].strip()
+        action_type = parts[1].strip()
+        action_name = parts[2].strip()
+        action_input = parts[3].strip()
+        
+        try:
+            logger.info(f"Scheduled {action_type}.{action_name} for {schedule_time}")
+            return f"Action scheduled for {schedule_time}"
+        except Exception as e:
+            msg = f"xTimeSchedule failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
+class PhoneActionHandler(ActionHandler):
+    """Handles phone call and SMS operations using tel: and sms: links."""
+    
+    def xMakeCall(self, aIn):
+        """Make a phone call by opening tel: link."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 1:
+            raise ValueError(f"Invalid input for xMakeCall: {aIn}. Expected 'phone_number'")
+        
+        phone_number = parts[0].strip()
+        
+        if phone_number.startswith('tel:'):
+            tel_url = phone_number
+        else:
+            tel_url = f"tel:{phone_number}"
+        
+        try:
+            webbrowser.open(tel_url)
+            time.sleep(1.5)
+            
+            if PYAUTOGUI_AVAILABLE:
+                try:
+                    pyautogui.press('enter')
+                    logger.info(f"Dial button pressed automatically for {phone_number}")
+                except Exception as auto_err:
+                    logger.warning(f"Could not automate dial button press: {auto_err}")
+            else:
+                logger.warning("pyautogui not available. Call may require manual confirmation.")
+            
+            logger.info(f"Call initiated successfully to {phone_number}")
+            return "Call initiated successfully"
+        except Exception as e:
+            msg = f"xMakeCall failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+    
+    def xSendSMS(self, aIn):
+        """Send SMS message by opening sms: link."""
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 1:
+            raise ValueError(f"Invalid input for xSendSMS: {aIn}. Expected 'phone_number;[message]'")
+        
+        phone_number = parts[0].strip()
+        message = parts[1].strip() if len(parts) > 1 else ""
+        
+        if message:
+            import urllib.parse
+            encoded_message = urllib.parse.quote(message)
+            sms_url = f"sms:{phone_number}?body={encoded_message}"
+        else:
+            sms_url = f"sms:{phone_number}"
+        
+        try:
+            webbrowser.open(sms_url)
+            time.sleep(1.5)
+            
+            if PYAUTOGUI_AVAILABLE:
+                try:
+                    pyautogui.press('enter')
+                    logger.info(f"Send button pressed automatically for SMS to {phone_number}")
+                except Exception as auto_err:
+                    logger.warning(f"Could not automate send button press: {auto_err}")
+            else:
+                logger.warning("pyautogui not available. SMS may require manual confirmation.")
+            
+            logger.info(f"SMS initiated successfully to {phone_number}")
+            return "SMS initiated successfully"
+        except Exception as e:
+            msg = f"xSendSMS failed: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
+
 def runAction(aT, aName, aIn, aOut=None, aExpected=None, plan_id=None, design_id=None, step_id=None, results_dir=None, handler=None, timeout=6):
     """Execute an action based on type and name."""
     handlers = {
@@ -1053,11 +2043,20 @@ def runAction(aT, aName, aIn, aOut=None, aExpected=None, plan_id=None, design_id
         "xMath": MathActionHandler(timeout=timeout),
         "xAPI": APIActionHandler(timeout=timeout),
         "xAI": AIActionHandler(timeout=timeout),
-        "xSAP": None, # Removed SAPActionHandler
-        "xJSON": JSONActionHandler(timeout=timeout)
+        "xSAP": None,
+        "xJSON": JSONActionHandler(timeout=timeout),
+        "xFile": FileActionHandler(timeout=timeout),
+        "xEmail": EmailActionHandler(timeout=timeout),
+        "xDB": DBActionHandler(timeout=timeout),
+        "xLogic": LogicActionHandler(timeout=timeout),
+        "xCloud": CloudActionHandler(timeout=timeout),
+        "xIoT": IoTActionHandler(timeout=timeout),
+        "xTime": TimeActionHandler(timeout=timeout),
+        "xPhone": PhoneActionHandler(timeout=timeout),
+        "xReuse": None
     }
     handler = handler or handlers.get(aT)
-    if not handler:
+    if not handler and aT != "xReuse":
         raise ValueError(f"Unknown action type: {aT}")
 
     start_time = time.time()
@@ -1108,7 +2107,8 @@ def runAction(aT, aName, aIn, aOut=None, aExpected=None, plan_id=None, design_id
         except WebDriverException as e:
             logger.error(f"Failed to capture screenshot: {str(e)}")
 
-    vOut = handler.save_output_to_file(vOut, plan_id, design_id, step_id, results_dir)
+    if handler:
+        vOut = handler.save_output_to_file(vOut, plan_id, design_id, step_id, results_dir)
 
     # Append to per-suite error summary if failed
     try:

@@ -122,24 +122,240 @@ def load_csv(file_path):
     return df
 
 def generate_dashboard(df, output_dir, ypad_name):
-    """Generate HTML dashboard from results DataFrame."""
-    # Count unique plan definitions, not executions
-    # Get one row per plan execution (DesignId, PlanId combination)
-    plan_executions = df.groupby(['DesignId', 'PlanId']).first().reset_index()
+    """Generate modern interactive HTML dashboard from results DataFrame."""
+    # Calculate plan-level results (a plan passes only if ALL its actions pass)
+    plan_results = df.groupby('PlanId').agg({
+        'Result': lambda x: 'Pass' if (x == 'Pass').all() else ('Pending' if x.isna().all() else 'Fail')
+    }).reset_index()
     
-    # Determine status for each unique plan (Pass if all executions passed, Fail if any failed)
-    plan_status = plan_executions.groupby('PlanId')['Result'].apply(
-        lambda x: 'Pass' if all(x == 'Pass') else 'Fail' if any(x == 'Fail') else 'Pending'
-    )
-    
-    unique_plans = df['PlanId'].unique()
+    # Calculate summary statistics at plan level
     summary_plans = {
-        "Total": len(unique_plans),
-        "Executed": len(plan_status[plan_status.isin(['Pass', 'Fail'])]),
-        "Pending": len(plan_status[plan_status == 'Pending']),
+        "Total": len(plan_results),
+        "Executed": len(plan_results[plan_results['Result'] != 'Pending']),
+        "Pending": len(plan_results[plan_results['Result'] == 'Pending']),
         "Time Taken (s)": round(df['TimeTaken'].sum(), 2),
-        "Pass": len(plan_status[plan_status == 'Pass']),
-        "Fail": len(plan_status[plan_status == 'Fail'])
+        "Pass": len(plan_results[plan_results['Result'] == 'Pass']),
+        "Fail": len(plan_results[plan_results['Result'] == 'Fail'])
+    }
+    summary_actions = {
+        "Total": len(df),
+        "Executed": len(df[df['Result'].notna()]),
+        "Pending": len(df[df['Result'].isna()]),
+        "Time Taken (s)": round(df['TimeTaken'].sum(), 2),
+        "Pass": len(df[df['Result'] == 'Pass']),
+        "Fail": len(df[df['Result'] == 'Fail'])
+    }
+
+    # Load the template from z/zDash_template.html
+    template_path = _resource_path('z/zDash_template.html')
+    
+    html_content = None
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+    except FileNotFoundError:
+        # Fallback to inline template if external file not found
+        html_content = _get_inline_dashboard_template()
+
+    # Prepare data for JavaScript
+    results_data = []
+    for _, row in df.iterrows():
+        # Check for screenshot file (from fEngine.py v1)
+        screenshot_file = None
+        if row.get('ActionType') == 'xUI' and row.get('Result') == 'Fail':
+            # Look for screenshot file in results directory
+            potential_screenshot = f"{row['PlanId']}_{row['DesignId']}_{row['StepId']}.png"
+            screenshot_path = os.path.join(output_dir, potential_screenshot)
+            if os.path.exists(screenshot_path):
+                screenshot_file = potential_screenshot
+        
+        # Also check for Screenshot column (from fEngine2.py v2)
+        if not screenshot_file and hasattr(row, 'Screenshot') and pd.notna(row.get('Screenshot')):
+            screenshot_file = str(row['Screenshot'])
+
+        # Prepare error details for failed actions
+        error_details = None
+        if row.get('Result') == 'Fail':
+            error_details = {
+                'type': 'TestFailure',  # fEngine.py v1 uses 'TestFailure'
+                'message': str(row.get('Output', 'Test failed')),
+                'url': None,  # Could be extracted from output if available
+                'stackTrace': None  # Could be extracted from logs if available
+            }
+
+        result_item = {
+            'designId': str(row.get('DesignId', '')),
+            'planId': str(row.get('PlanId', '')),
+            'stepId': str(row.get('StepId', '')),
+            'stepInfo': str(row.get('StepInfo', '')),
+            'actionType': str(row.get('ActionType', '')),
+            'actionName': str(row.get('ActionName', '')),
+            'input': str(row.get('Input', '')),
+            'output': str(row.get('Output', '')),
+            'expected': str(row.get('Expected', '')),
+            'result': str(row.get('Result', '')) if pd.notna(row.get('Result')) else None,
+            'time': str(row.get('Time', datetime.now().strftime("%H:%M:%S"))),
+            'timeTaken': round(float(row.get('TimeTaken', 0)), 2),
+            'critical': str(row.get('Critical', 'N')),
+            'screenshot': screenshot_file,
+            'errorDetails': error_details
+        }
+        results_data.append(result_item)
+
+    # Convert results to JSON for JavaScript
+    results_json = json.dumps(results_data, indent=2)
+
+    # Replace template placeholders (using plan-level stats for summary cards)
+    replacements = {
+        '{YPAD_NAME}': ypad_name,
+        '{GENERATION_TIME}': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        '{TOTAL_ACTIONS}': str(summary_plans["Total"]),  # Show total plans
+        '{PASSED_ACTIONS}': str(summary_plans["Pass"]),  # Show passed plans
+        '{FAILED_ACTIONS}': str(summary_plans["Fail"]),  # Show failed plans
+        '{PENDING_ACTIONS}': str(summary_plans["Pending"]),  # Show pending plans
+        '{TOTAL_TIME}': str(summary_plans["Time Taken (s)"])
+    }
+
+    # Apply basic replacements
+    for placeholder, value in replacements.items():
+        html_content = html_content.replace(placeholder, value)
+    
+    # Replace the mock data section with actual results (from fEngine.py v1 - more robust)
+    mock_data_start = html_content.find('// MOCK DATA FOR DEMONSTRATION')
+    mock_data_end = html_content.find('// Replace the above mock data')
+    
+    if mock_data_start != -1 and mock_data_end != -1:
+        # Replace the entire mock data section
+        replacement_section = f"""// ACTUAL DATA FROM CSV RESULTS
+        const testResults = {results_json};
+
+        """
+        html_content = (html_content[:mock_data_start] + 
+                       replacement_section + 
+                       html_content[mock_data_end:])
+    else:
+        # Fallback: try to replace the testResults array directly (from fEngine.py v1)
+        if 'const testResults = [' in html_content:
+            # Find and replace the entire testResults array
+            start_idx = html_content.find('const testResults = [')
+            if start_idx != -1:
+                # Find the end of the array (matching closing bracket)
+                bracket_count = 0
+                end_idx = start_idx + len('const testResults = ')
+                for i, char in enumerate(html_content[end_idx:], end_idx):
+                    if char == '[':
+                        bracket_count += 1
+                    elif char == ']':
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            end_idx = i + 1
+                            break
+                
+                # Replace the array
+                html_content = (html_content[:start_idx] + 
+                               f'const testResults = {results_json}' +
+                               html_content[end_idx:])
+        else:
+            # Try fEngine2.py v2 approach
+            mock_data_start = 'const testResults = ['
+            mock_data_end = '];'
+            start_idx = html_content.find(mock_data_start)
+            if start_idx != -1:
+                end_idx = html_content.find(mock_data_end, start_idx) + len(mock_data_end)
+                if end_idx != -1:
+                    actual_data = f"const testResults = {json.dumps(results_data, indent=8)};"
+                    html_content = html_content[:start_idx] + actual_data + html_content[end_idx:]
+                else:
+                    # Last resort: append the data
+                    script_tag = html_content.find('<script>')
+                    if script_tag != -1:
+                        insert_pos = script_tag + len('<script>')
+                        html_content = (html_content[:insert_pos] + 
+                                       f'\n        const testResults = {results_json};\n' +
+                                       html_content[insert_pos:])
+
+    # Write the dashboard file
+    dashboard_path = os.path.join(output_dir, f"{ypad_name}_zDash.html")
+    with open(dashboard_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    return dashboard_path
+
+def _get_inline_dashboard_template():
+    """Fallback inline dashboard template if external file is not available."""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoXYiZ Test Dashboard - {YPAD_NAME}</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f8fafc; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; border-radius: 12px; margin-bottom: 2rem; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card h3 { margin: 0 0 0.5rem 0; color: #64748b; font-size: 0.875rem; text-transform: uppercase; }
+        .card .value { font-size: 2rem; font-weight: bold; color: #1e293b; }
+        .results { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; font-weight: 600; }
+        .status-pass { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .status-fail { background: #fecaca; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>FoXYiZ Test Dashboard</h1>
+            <p>Test Suite: <strong>{YPAD_NAME}</strong> | Generated: <strong>{GENERATION_TIME}</strong></p>
+        </div>
+        <div class="summary">
+            <div class="card"><h3>Total Tests</h3><div class="value">{TOTAL_ACTIONS}</div></div>
+            <div class="card"><h3>Passed</h3><div class="value">{PASSED_ACTIONS}</div></div>
+            <div class="card"><h3>Failed</h3><div class="value">{FAILED_ACTIONS}</div></div>
+            <div class="card"><h3>Pending</h3><div class="value">{PENDING_ACTIONS}</div></div>
+            <div class="card"><h3>Duration</h3><div class="value">{TOTAL_TIME}s</div></div>
+        </div>
+        <div class="results">
+            <table id="results-table">
+                <thead>
+                    <tr><th>Plan ID</th><th>Step</th><th>Action</th><th>Status</th><th>Duration</th></tr>
+                </thead>
+                <tbody id="results-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        const testResults = [];
+        // Fallback simple table rendering
+        const tbody = document.getElementById('results-tbody');
+        testResults.forEach(result => {
+            const row = document.createElement('tr');
+            const statusClass = result.result === 'Pass' ? 'status-pass' : 'status-fail';
+            row.innerHTML = `
+                <td><strong>${result.planId}</strong></td>
+                <td>${result.stepId} - ${result.stepInfo}</td>
+                <td>${result.actionType} → ${result.actionName}</td>
+                <td><span class="${statusClass}">${result.result}</span></td>
+                <td>${result.timeTaken ? result.timeTaken.toFixed(2) + 's' : '-'}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    </script>
+</body>
+</html>"""
+
+def _generate_basic_dashboard(df, output_dir, ypad_name):
+    """Fallback function to generate basic dashboard if template is not found (from fEngine2.py v2)."""
+    summary_plans = {
+        "Total": len(df['PlanId'].unique()),
+        "Executed": len(df[df['Result'].notna()]['PlanId'].unique()),
+        "Pending": len(df[df['Result'].isna()]['PlanId'].unique()),
+        "Time Taken (s)": round(df['TimeTaken'].sum(), 2),
+        "Pass": len(df[df['Result'] == 'Pass']['PlanId'].unique()),
+        "Fail": len(df[df['Result'] == 'Fail']['PlanId'].unique())
     }
     summary_actions = {
         "Total": len(df),
@@ -195,8 +411,7 @@ def generate_dashboard(df, output_dir, ypad_name):
     """
 
     plan_rows = ""
-    plan_executions = df.groupby(['DesignId', 'PlanId']).last().reset_index()  # Use last() to get final step output
-    for _, row in plan_executions.iterrows():
+    for _, row in df.groupby(['DesignId', 'PlanId']).first().reset_index().iterrows():
         plan_rows += f"<tr><td>{row['DesignId']}</td><td>{row['PlanId']}</td><td>{row.get('Output', '')}</td><td>{row['Result']}</td><td>{round(row['TimeTaken'], 2)}</td></tr>\n"
 
     action_rows = ""
@@ -215,8 +430,6 @@ def generate_dashboard(df, output_dir, ypad_name):
     dashboard_path = os.path.join(output_dir, f"{ypad_name}_zDash.html")
     with open(dashboard_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
-    # Suppress technical logging
-    # logger.info(f"Dashboard generated at {dashboard_path}")
 
 def process_action(args):
     """Process a single action for a given plan and design."""
@@ -269,17 +482,34 @@ def process_action(args):
         if reused_plan.empty:
             raise ValueError(f"Reused plan {reused_plan_id} not found")
         reused_actions = y2_actions[y2_actions['PlanId'] == reused_plan_id]
+        
+        # Process all reused actions and collect results (from fEngine.py v1 - better reporting)
+        reuse_results = []
         for _, reused_action in reused_actions.iterrows():
             reused_args = (reused_plan_id, design_id, reused_action, results_dir, timeout, ypad_config)
             action_result = process_action(reused_args)
+            reuse_results.append(action_result)
             if action_result['ActionType'] == "xUI" and action_result['ActionName'] == "xOpenBrowser":
                 continue  # Browser already opened by ui_handler
             if action_result['Result'] == "Fail":
                 return action_result
+        
+        # Return success result for xReuse (from fEngine.py v1 - provides better feedback)
+        return {
+            'DesignId': design_id, 'PlanId': plan_id, 'StepId': step_id,
+            'StepInfo': step_info, 'ActionType': action_type, 'ActionName': action_name,
+            'Input': input_data, 'Output': f"Successfully reused plan {reused_plan_id} with {len(reuse_results)} actions", 
+            'Expected': expected, 'Result': 'Pass', 'Time': datetime.now().strftime("%H:%M:%S"), 'TimeTaken': 0
+        }
 
     # Execute the action (no driver_path logic)
     # Only pass ui_handler for UI actions to maintain browser session
     handler_param = ui_handler if action_type == "xUI" else None
+    
+    # Add 0-second delay before closing browser to ensure all operations complete (from fEngine2.py v2)
+    if action_type == "xUI" and action_name == "xCloseBrowser":
+        time.sleep(0)
+    
     result, output, time_taken = xActions.runAction(
         action_type, action_name, input_data, output, expected,
         plan_id, design_id, step_id, results_dir, handler=handler_param, timeout=timeout
@@ -369,6 +599,12 @@ def main():
     configs = main_config.get("configs", [])
     timeout = main_config.get("timeout", 6)
     debug_mode = bool(args.debug or main_config.get("debug", False))
+    headless_mode = bool(main_config.get("headless", False))  # From fEngine2.py v2
+
+    # Set headless mode environment variable if configured (from fEngine2.py v2)
+    if headless_mode:
+        os.environ['FOXYIZ_HEADLESS'] = 'true'
+        print_status("Headless mode enabled", "INFO")
 
     # propagate debug mode into action layer
     try:
@@ -439,15 +675,16 @@ def main():
             pass
         
         # Calculate and show summary
-        # Count unique plan definitions, not executions
-        plan_executions = df.groupby(['DesignId', 'PlanId']).first().reset_index()
-        # Determine status for each unique plan (Pass if all executions passed, Fail if any failed)
-        plan_status = plan_executions.groupby('PlanId')['Result'].apply(
-            lambda x: 'Pass' if all(x == 'Pass') else 'Fail' if any(x == 'Fail') else 'Pending'
-        )
-        total_plans = len(plan_status)
-        passed_plans = len(plan_status[plan_status == 'Pass'])
-        failed_plans = len(plan_status[plan_status == 'Fail'])
+        total_plans = len(plans_to_run)
+        
+        # Calculate plan-level results (a plan passes only if ALL its actions across ALL designs pass)
+        # Use fEngine2.py v2 approach with reset_index for better DataFrame handling
+        plan_results = df.groupby('PlanId').agg({
+            'Result': lambda x: 'Pass' if (x == 'Pass').all() else 'Fail'
+        }).reset_index()
+        
+        passed_plans = len(plan_results[plan_results['Result'] == 'Pass'])
+        failed_plans = len(plan_results[plan_results['Result'] == 'Fail'])
         total_time = time.time() - start_time
         
         dashboard_path = os.path.join(output_dir, f"{ypad_name}_zDash.html")
@@ -479,3 +716,4 @@ if __name__ == "__main__":
         except Exception:
             pass
         sys.exit(130)
+
