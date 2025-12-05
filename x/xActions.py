@@ -938,7 +938,8 @@ class JSONActionHandler(ActionHandler):
             raise ValueError(f"Invalid input for xCompareJson: {aIn}. Expected 'key_path;expected_value'")
         key_path, expected_value = vIn
         value = self._get_json_value(APIActionHandler._last_response, key_path)
-        result = str(value == expected_value)
+        # Convert both to strings for comparison to handle type mismatches (e.g., int 200 vs string "200")
+        result = str(str(value) == str(expected_value))
         logger.info(f"JSON comparison result: {result}")
         return result
 

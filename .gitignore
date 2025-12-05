@@ -12,6 +12,7 @@ _others/
 .git/
 
 # Python cache
+x/_pycache__/
 __pycache__/
 *.pyc
 *.pyo

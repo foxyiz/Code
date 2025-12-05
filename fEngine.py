@@ -605,6 +605,10 @@ def main():
     if headless_mode:
         os.environ['FOXYIZ_HEADLESS'] = 'true'
         print_status("Headless mode enabled", "INFO")
+    else:
+        # Explicitly disable headless mode to ensure browsers open
+        os.environ['FOXYIZ_HEADLESS'] = 'false'
+        print_status("Headless mode disabled - browsers will open", "INFO")
 
     # propagate debug mode into action layer
     try:
