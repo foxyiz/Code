@@ -221,14 +221,22 @@ class UIActionHandler(ActionHandler):
         else:
             by_type, locator_value = _detect_selector(locator)
         condition = EC.element_to_be_clickable if clickable else EC.presence_of_element_located
+        
+        # Increase wait time for cloud/headless environments
+        wait_timeout = self._timeout
+        if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes'):
+            wait_timeout = max(wait_timeout, 10)  # Minimum 10 seconds for headless/cloud
+        
         last_exception = None
         for attempt in range(retries + 1):
             try:
-                return WebDriverWait(self._driver, self._timeout).until(condition((by_type, locator_value)))
+                return WebDriverWait(self._driver, wait_timeout).until(condition((by_type, locator_value)))
             except (TimeoutException, NoSuchElementException) as e:
                 last_exception = e
                 if attempt < retries:
-                    time.sleep(1)
+                    # Longer wait between retries in cloud environments
+                    wait_seconds = 2 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 1
+                    time.sleep(wait_seconds)
                     continue
                 raise last_exception
 
@@ -236,6 +244,7 @@ class UIActionHandler(ActionHandler):
         """Open a web browser using system PATH or a provided driver_path.
         Users: Ensure the browser driver is installed and on PATH.
         Supports headless mode via FOXYIZ_HEADLESS environment variable.
+        Automatically enables headless mode in cloud environments.
         """
         if UIActionHandler._shared_driver:
             return "Browser already open"
@@ -243,6 +252,41 @@ class UIActionHandler(ActionHandler):
         
         # Detect headless mode from environment variable
         headless_mode = os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes')
+        
+        # Auto-detect cloud environment and enable headless mode if needed
+        if not headless_mode:
+            is_cloud = False
+            # Check for common cloud environment indicators
+            # 1. No DISPLAY variable (Linux/Unix without X11)
+            if os.name != 'nt' and not os.environ.get('DISPLAY'):
+                is_cloud = True
+            # 2. AWS EC2 indicators
+            if os.path.exists('/sys/hypervisor/uuid') or os.path.exists('/sys/class/dmi/id/product_uuid'):
+                try:
+                    with open('/sys/class/dmi/id/product_uuid', 'r') as f:
+                        uuid = f.read().strip().lower()
+                        if uuid.startswith('ec2') or 'amazon' in uuid:
+                            is_cloud = True
+                except Exception:
+                    pass
+            # 3. Check for common cloud environment variables
+            cloud_vars = ['AWS_EXECUTION_ENV', 'CLOUD_RUN', 'K_SERVICE', 'FUNCTION_TARGET', 
+                         'LAMBDA_RUNTIME_DIR', 'AZURE_WEBJOBS_PATH', 'WEBSITE_INSTANCE_ID']
+            if any(os.environ.get(var) for var in cloud_vars):
+                is_cloud = True
+            # 4. Check if running in Docker/container
+            if os.path.exists('/.dockerenv') or os.path.exists('/proc/1/cgroup'):
+                try:
+                    with open('/proc/1/cgroup', 'r') as f:
+                        if 'docker' in f.read() or 'kubepods' in f.read():
+                            is_cloud = True
+                except Exception:
+                    pass
+            
+            if is_cloud:
+                headless_mode = True
+                os.environ['FOXYIZ_HEADLESS'] = 'true'
+                logger.info("Cloud environment detected - enabling headless mode automatically")
         
         try:
             if browser_type == "chrome":
@@ -262,13 +306,26 @@ class UIActionHandler(ActionHandler):
                     else:
                         opts.add_argument("--disable-gpu")
                     
-                    # Additional cloud-friendly options
+                    # Additional cloud-friendly options (essential for cloud execution)
                     opts.add_argument("--disable-extensions")
                     opts.add_argument("--disable-plugins")
+                    opts.add_argument("--disable-software-rasterizer")
+                    opts.add_argument("--disable-background-timer-throttling")
+                    opts.add_argument("--disable-backgrounding-occluded-windows")
+                    opts.add_argument("--disable-renderer-backgrounding")
+                    opts.add_argument("--disable-features=TranslateUI")
+                    opts.add_argument("--disable-ipc-flooding-protection")
                     # Improve compatibility with headless mode for better click reliability
                     opts.add_argument("--disable-blink-features=AutomationControlled")
                     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                     opts.add_experimental_option('useAutomationExtension', False)
+                    # Additional options for better cloud stability (only if not already set)
+                    # Note: Remote debugging port may conflict in some environments, so we make it optional
+                    try:
+                        opts.add_argument("--remote-debugging-port=9222")
+                        opts.add_argument("--remote-allow-origins=*")
+                    except Exception:
+                        pass  # Skip if already set or not supported
                 else:
                     opts = None
 
@@ -410,12 +467,15 @@ class UIActionHandler(ActionHandler):
             # Scroll element into view first (important for headless mode)
             try:
                 self._driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-                time.sleep(0.2)  # Brief pause after scrolling
+                # Longer pause in headless/cloud mode for better reliability
+                pause_time = 0.5 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.2
+                time.sleep(pause_time)
             except Exception:
                 # Fallback: use Selenium's scroll method
                 try:
                     self._driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                    time.sleep(0.2)
+                    pause_time = 0.5 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.2
+                    time.sleep(pause_time)
                 except Exception:
                     pass  # Continue even if scroll fails
             
@@ -442,7 +502,9 @@ class UIActionHandler(ActionHandler):
                         raise Exception(f"All click strategies failed. ActionChains: {str(e1)}, JavaScript: {str(e2)}, Direct: {str(e3)}")
             
             # Add delay after click to ensure action is fully registered and processed
-            time.sleep(0.5)
+            # Longer delay in headless/cloud mode for better reliability
+            click_delay = 1.0 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.5
+            time.sleep(click_delay)
             logger.info("Click successful")
             return "Clicked element"
         except Exception as e:

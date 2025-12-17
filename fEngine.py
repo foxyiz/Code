@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 from datetime import datetime
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 try:
     import x.xActions as xActions
 except ImportError:
@@ -31,23 +31,40 @@ logging.getLogger('selenium').setLevel(logging.ERROR)
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('requests').setLevel(logging.ERROR)
 
-# User-friendly output functions
-def print_header(title):
-    """Print a formatted header for sections."""
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
+# Global print lock for synchronized output (initialized in main)
+print_lock = None
 
-def print_progress(current, total, item_name="items"):
+# User-friendly output functions
+def print_header(title, lock=None):
+    """Print a formatted header for sections."""
+    lock_to_use = lock or print_lock
+    if lock_to_use:
+        with lock_to_use:
+            print(f"\n{'='*60}")
+            print(f"  {title}")
+            print(f"{'='*60}")
+    else:
+        print(f"\n{'='*60}")
+        print(f"  {title}")
+        print(f"{'='*60}")
+
+def print_progress(current, total, item_name="items", lock=None):
     """Print progress information."""
+    lock_to_use = lock or print_lock
     percentage = (current / total) * 100 if total > 0 else 0
     bar_length = 30
     filled_length = int(bar_length * current // total) if total > 0 else 0
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
+    message = f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})"
+    if lock_to_use:
+        with lock_to_use:
+            print(message, end='', flush=True)
+    else:
+        print(message, end='', flush=True)
 
-def print_status(message, status="INFO"):
+def print_status(message, status="INFO", lock=None):
     """Print status messages with formatting."""
+    lock_to_use = lock or print_lock
     status_symbols = {
         "INFO": "ℹ️",
         "SUCCESS": "✅", 
@@ -56,7 +73,12 @@ def print_status(message, status="INFO"):
         "RUNNING": "🔄"
     }
     symbol = status_symbols.get(status, "•")
-    print(f"{symbol} {message}")
+    output = f"{symbol} {message}"
+    if lock_to_use:
+        with lock_to_use:
+            print(output)
+    else:
+        print(output)
 
 def print_summary(stats):
     """Print execution summary."""
@@ -68,6 +90,29 @@ def print_summary(stats):
     print(f"📁 Results saved to: {stats['output_dir']}")
     print(f"🌐 Dashboard: {stats['dashboard_path']}")
     print(f"{'='*60}\n")
+
+def cleanup_empty_directories(directory):
+    """Remove empty directories recursively, but keep the root directory."""
+    if not os.path.exists(directory):
+        return 0
+    
+    removed_count = 0
+    # Walk through all subdirectories, starting from the deepest ones
+    for root, dirs, files in os.walk(directory, topdown=False):
+        # Skip the root directory itself
+        if root == directory:
+            continue
+        
+        # Check if directory is empty (no files and no subdirectories)
+        try:
+            if not os.listdir(root):
+                os.rmdir(root)
+                removed_count += 1
+        except OSError:
+            # Directory might have been removed already or permission issue
+            pass
+    
+    return removed_count
 
 # Global cache for action results
 action_cache = {}
@@ -113,7 +158,36 @@ def load_csv(file_path):
     resolved = file_path
     if not os.path.isabs(file_path):
         resolved = _resource_path(file_path)
-    df = pd.read_csv(resolved)
+    # Read CSV with explicit encoding and handle various CSV formats
+    # Use doublequote=True to properly handle escaped quotes in CSV values
+    # Try multiple encodings and quote handling options
+    # Add better error handling for Linux compatibility
+    last_error = None
+    try:
+        df = pd.read_csv(resolved, encoding='utf-8-sig', quotechar='"', doublequote=True)  # utf-8-sig handles BOM
+    except Exception as e:
+        last_error = e
+        # Fallback: try without quotechar specification
+        try:
+            df = pd.read_csv(resolved, encoding='utf-8-sig', doublequote=True)
+        except Exception as e2:
+            last_error = e2
+            # Last resort: try default encoding
+            try:
+                df = pd.read_csv(resolved, doublequote=True)
+            except Exception as e3:
+                last_error = e3
+                # Final fallback: basic read
+                try:
+                    df = pd.read_csv(resolved)
+                except Exception as e4:
+                    # If all attempts fail, raise with helpful message
+                    raise Exception(f"Failed to read CSV file '{resolved}'. Last error: {str(e4)}. "
+                                  f"Previous errors: {str(e)}, {str(e2)}, {str(e3)}")
+    
+    # Clean column names: strip whitespace and remove quotes
+    df.columns = df.columns.str.strip().str.strip('"').str.strip("'")
+    
     # Fix PlanId column to be string if it exists
     if 'PlanId' in df.columns:
         # Only add 'P' prefix if it's not already there
@@ -447,19 +521,122 @@ def process_action(args):
     # logger.info(f"Processing action for PlanId={plan_id}")
 
     # Resolve variables from y3Designs.csv
-    y3_designs = load_csv(ypad_config['input_files']['yDesigns'][0])
+    try:
+        y3_designs = load_csv(ypad_config['input_files']['yDesigns'][0])
+    except Exception as e:
+        # If loading designs fails, log but continue (variables won't be resolved)
+        logger.warning(f"Failed to load y3Designs.csv: {str(e)}")
+        y3_designs = pd.DataFrame()
+    
+    import re
     for col in y3_designs.columns:
         if col not in ['Type', 'DataName']:
             if col == design_id:
                 for _, row in y3_designs.iterrows():
-                    data_name = row['DataName']
-                    data_value = str(row[design_id])
-                    # Use word boundary replacement to avoid partial matches
-                    import re
-                    pattern = r'\b' + re.escape(data_name) + r'\b'
-                    # Use lambda to avoid regex interpretation of replacement string
-                    input_data = re.sub(pattern, lambda m: data_value, input_data)
-                    expected = re.sub(pattern, lambda m: data_value, expected)
+                    try:
+                        data_name = row['DataName']
+                        data_value = str(row[design_id])
+                        # Clean the data value: remove leading/trailing quotes only if they wrap the entire value
+                        # This handles cases where CSV values have extra outer quotes, but preserves quotes in content
+                        data_value = data_value.strip()
+                        
+                        # Remove outer quotes more aggressively - handle cases where value has quotes inside
+                        # Keep removing outer quotes until no more can be removed
+                        # This handles: "value", ""value"", """value""", etc.
+                        max_iterations = 10  # Prevent infinite loops
+                        iteration = 0
+                        while iteration < max_iterations and len(data_value) >= 2:
+                            iteration += 1
+                            original_value = data_value
+                            
+                            # Check for double quote at start and end
+                            if data_value.startswith('"') and data_value.endswith('"'):
+                                # Count consecutive quotes at the start and end
+                                start_quotes = 0
+                                end_quotes = 0
+                                for i in range(len(data_value)):
+                                    if data_value[i] == '"':
+                                        start_quotes += 1
+                                    else:
+                                        break
+                                for i in range(len(data_value) - 1, -1, -1):
+                                    if data_value[i] == '"':
+                                        end_quotes += 1
+                                    else:
+                                        break
+                                # If we have matching quotes at start and end, remove one layer
+                                if start_quotes > 0 and end_quotes > 0 and start_quotes == end_quotes:
+                                    data_value = data_value[start_quotes:-end_quotes].strip()
+                                    # Continue loop to check if there are more outer quotes
+                                    continue
+                            
+                            # Check for single quote at start and end
+                            if data_value.startswith("'") and data_value.endswith("'"):
+                                start_quotes = 0
+                                end_quotes = 0
+                                for i in range(len(data_value)):
+                                    if data_value[i] == "'":
+                                        start_quotes += 1
+                                    else:
+                                        break
+                                for i in range(len(data_value) - 1, -1, -1):
+                                    if data_value[i] == "'":
+                                        end_quotes += 1
+                                    else:
+                                        break
+                                if start_quotes > 0 and end_quotes > 0 and start_quotes == end_quotes:
+                                    data_value = data_value[start_quotes:-end_quotes].strip()
+                                    # Continue loop to check if there are more outer quotes
+                                    continue
+                            
+                            # If no changes were made, break
+                            if data_value == original_value:
+                                break
+                        
+                        # Fix CSS selectors: convert double quotes to single quotes in attribute selectors
+                        # This fixes issues like: button[onclick="addElement()"] -> button[onclick='addElement()']
+                        # Also handles escaped quotes: button[onclick=""addElement()""] -> button[onclick='addElement()']
+                        # CSS attribute selectors work better with single quotes inside
+                        if data_value.startswith('css==') or '[' in data_value:
+                            try:
+                                # First, handle escaped double quotes ("" -> ")
+                                # This handles cases where CSV has ""addElement()"" which pandas might not fully unescape
+                                # Replace all occurrences of "" with " (handle multiple escaped quotes)
+                                while '""' in data_value:
+                                    data_value = data_value.replace('""', '"')
+                                
+                                # Pattern to match attribute selectors with double quotes: [attr="value"]
+                                # Replace with single quotes: [attr='value']
+                                def fix_css_quotes(match):
+                                    try:
+                                        attr_part = match.group(1)  # The attribute name and = sign
+                                        value = match.group(2)  # The value inside double quotes
+                                        return f"[{attr_part}'{value}']"
+                                    except Exception:
+                                        # If regex replacement fails, return original match
+                                        return match.group(0)
+                                
+                                # Match pattern: [attribute="value"] and replace with [attribute='value']
+                                # Use try-except to handle any regex errors gracefully
+                                # Apply multiple times to handle nested or multiple attribute selectors
+                                prev_value = ""
+                                while prev_value != data_value:
+                                    prev_value = data_value
+                                    data_value = re.sub(r'\[([^=]+=)"([^"]+)"\]', fix_css_quotes, data_value)
+                            except Exception:
+                                # If CSS quote fixing fails, continue with original value
+                                # This ensures the code doesn't crash on Linux if regex fails
+                                pass
+                        
+                        # Use word boundary replacement to avoid partial matches
+                        pattern = r'\b' + re.escape(data_name) + r'\b'
+                        # Use lambda to avoid regex interpretation of replacement string
+                        input_data = re.sub(pattern, lambda m: data_value, input_data)
+                        expected = re.sub(pattern, lambda m: data_value, expected)
+                    except Exception as e:
+                        # If variable resolution fails for one row, log and continue
+                        logger.warning(f"Failed to resolve variable {data_name if 'data_name' in locals() else 'unknown'}: {str(e)}")
+                        continue
 
     # Check cache for repeated actions
     cache_key = f"{plan_id}_{step_id}_{input_data}"
@@ -528,7 +705,7 @@ def process_action(args):
 
 def process_plan(args):
     """Process a single plan for a given design."""
-    plan_row, ypad_config, output_dir, timeout, plan_index, total_plans = args
+    plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, print_lock = args
     plan_id = plan_row['PlanId']
     design_ids = str(plan_row['DesignId']).split(';')
     y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
@@ -536,7 +713,7 @@ def process_plan(args):
     results = []
 
     # Show plan execution start
-    print_status(f"Starting plan: {plan_id}", "RUNNING")
+    print_status(f"Starting plan: {plan_id}", "RUNNING", print_lock)
     
     for design_id in design_ids:
         # Suppress technical logging
@@ -552,13 +729,13 @@ def process_plan(args):
             
             # Show action progress
             if result['Result'] == 'Pass':
-                print_status(f"  ✓ {action_row['StepInfo']}", "SUCCESS")
+                print_status(f"  ✓ [{plan_id}] {action_row['StepInfo']}", "SUCCESS", print_lock)
             elif result['Result'] == 'Fail':
-                print_status(f"  ✗ {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR")
+                print_status(f"  ✗ [{plan_id}] {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR", print_lock)
                 # If action marked Critical, stop executing remaining actions for this plan/design
                 is_critical = str(action_row.get('Critical', 'n')).strip().lower() in {'y', 'yes', 'true', '1'}
                 if is_critical:
-                    print_status(f"  → Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING")
+                    print_status(f"  → [{plan_id}] Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING", print_lock)
                     break
 
     # Show plan completion
@@ -567,17 +744,18 @@ def process_plan(args):
     total_actions = len(plan_results)
     
     if passed_actions == total_actions:
-        print_status(f"Plan {plan_id} completed successfully ({passed_actions}/{total_actions} actions)", "SUCCESS")
+        print_status(f"Plan {plan_id} completed successfully ({passed_actions}/{total_actions} actions)", "SUCCESS", print_lock)
     else:
-        print_status(f"Plan {plan_id} completed with issues ({passed_actions}/{total_actions} actions passed)", "WARNING")
+        print_status(f"Plan {plan_id} completed with issues ({passed_actions}/{total_actions} actions passed)", "WARNING", print_lock)
 
-    return results
+    return (plan_index, results)
 
 def main():
     """Main function to execute the test framework."""
     # Clear action cache to ensure fresh execution
-    global action_cache
+    global action_cache, print_lock
     action_cache.clear()
+    print_lock = None  # Will be set per test suite if using parallel execution
     
     parser = argparse.ArgumentParser(description="FoXYiZ Test Framework")
     parser.add_argument('--config', required=False, default='fStart.json', help="Path to the main config JSON file")
@@ -602,13 +780,16 @@ def main():
     headless_mode = bool(main_config.get("headless", False))  # From fEngine2.py v2
 
     # Set headless mode environment variable if configured (from fEngine2.py v2)
+    # Note: Even if headless is False, xActions will auto-detect cloud environments
+    # and enable headless mode automatically for cloud execution
     if headless_mode:
         os.environ['FOXYIZ_HEADLESS'] = 'true'
         print_status("Headless mode enabled", "INFO")
     else:
-        # Explicitly disable headless mode to ensure browsers open
+        # Explicitly disable headless mode to ensure browsers open (for local execution)
+        # Cloud environments will be auto-detected and headless mode enabled automatically
         os.environ['FOXYIZ_HEADLESS'] = 'false'
-        print_status("Headless mode disabled - browsers will open", "INFO")
+        print_status("Headless mode disabled - browsers will open (cloud auto-detection enabled)", "INFO")
 
     # propagate debug mode into action layer
     try:
@@ -644,7 +825,26 @@ def main():
 
         # Load plans and filter by Run=Y
         y1_plans = load_csv(ypad_config['input_files']['yPlans'][0])
-        plans_to_run = y1_plans[y1_plans['Run'] == 'Y']
+        
+        # Check if 'Run' column exists (case-insensitive check)
+        # Column names should already be cleaned by load_csv, but check anyway
+        run_column = None
+        for col in y1_plans.columns:
+            cleaned_col = col.strip().strip('"').strip("'")
+            if cleaned_col.lower() == 'run':
+                run_column = col  # Use original column name from DataFrame
+                break
+        
+        if run_column is None:
+            available_columns = ', '.join([f"'{col}'" for col in y1_plans.columns.tolist()])
+            print_status(f"Error: 'Run' column not found in y1Plans.csv", "ERROR")
+            print_status(f"Available columns: {available_columns}", "ERROR")
+            print_status(f"CSV file: {ypad_config['input_files']['yPlans'][0]}", "ERROR")
+            print_status(f"Number of columns: {len(y1_plans.columns)}", "ERROR")
+            continue
+        
+        # Filter plans where Run='Y' (use actual column name from DataFrame)
+        plans_to_run = y1_plans[y1_plans[run_column] == 'Y']
         
         print_status(f"Found {len(plans_to_run)} plans to execute", "INFO")
         
@@ -652,23 +852,96 @@ def main():
             print_status("No plans marked for execution (Run=Y)", "WARNING")
             continue
 
-        # Process plans sequentially for better user experience
-        all_results = []
+        # Separate plans into UI and non-UI plans to avoid browser conflicts
+        # UI plans must run sequentially to prevent browser driver conflicts
+        y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
+        ui_plans = []
+        non_ui_plans = []
+        
         for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
-            plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, len(plans_to_run))
-            results = process_plan(plan_args)
-            all_results.extend(results)
+            plan_id = plan_row['PlanId']
+            plan_actions = y2_actions[y2_actions['PlanId'] == plan_id]
+            has_ui_action = any(plan_actions['ActionType'] == 'xUI')
             
-            # Show progress
-            print_progress(plan_index, len(plans_to_run), "plans")
-
+            if has_ui_action:
+                ui_plans.append((plan_index, plan_row))
+            else:
+                non_ui_plans.append((plan_index, plan_row))
+        
+        # Show plan categorization
+        if len(ui_plans) > 0 and len(non_ui_plans) > 0:
+            print_status(f"Found {len(non_ui_plans)} non-UI plan(s) and {len(ui_plans)} UI plan(s)", "INFO")
+        elif len(ui_plans) > 0:
+            print_status(f"All {len(ui_plans)} plan(s) contain UI actions (will run sequentially)", "INFO")
+        elif len(non_ui_plans) > 0:
+            print_status(f"All {len(non_ui_plans)} plan(s) are non-UI (can run in parallel)", "INFO")
+        
+        all_results = []
+        total_plans = len(plans_to_run)
+        
+        # Process non-UI plans in parallel (faster, no browser conflicts)
+        if len(non_ui_plans) > 0:
+            if thread_count > 1 and len(non_ui_plans) > 1:
+                print_status(f"Processing {len(non_ui_plans)} non-UI plan(s) in parallel ({thread_count} workers)...", "INFO")
+                
+                # Create a manager for shared lock
+                manager = Manager()
+                print_lock = manager.Lock()
+                
+                # Prepare arguments for parallel processing
+                plan_args_list = []
+                for plan_index, plan_row in non_ui_plans:
+                    plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, print_lock)
+                    plan_args_list.append(plan_args)
+                
+                # Process non-UI plans in parallel
+                with Pool(processes=thread_count) as pool:
+                    plan_results = pool.map(process_plan, plan_args_list)
+                
+                # Sort results by plan_index to maintain order and flatten
+                plan_results.sort(key=lambda x: x[0])
+                for _, results in plan_results:
+                    all_results.extend(results)
+                
+                # Show progress after parallel execution
+                print_progress(len(non_ui_plans), total_plans, "plans")
+            else:
+                # Sequential execution for non-UI plans (single thread or single plan)
+                print_status(f"Processing {len(non_ui_plans)} non-UI plan(s) sequentially...", "INFO")
+                for non_ui_index, (plan_index, plan_row) in enumerate(non_ui_plans, 1):
+                    plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, None)
+                    plan_index_result, results = process_plan(plan_args)
+                    all_results.extend(results)
+                    print_progress(non_ui_index, total_plans, "plans")
+        
+        # Process UI plans sequentially (prevents browser driver conflicts)
+        if len(ui_plans) > 0:
+            print_status(f"Processing {len(ui_plans)} UI plan(s) sequentially (to avoid browser conflicts)...", "INFO")
+            for ui_index, (plan_index, plan_row) in enumerate(ui_plans, 1):
+                plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, None)
+                plan_index_result, results = process_plan(plan_args)
+                all_results.extend(results)
+                completed = len(non_ui_plans) + ui_index
+                print_progress(completed, total_plans, "plans")
+        
         print()  # New line after progress bar
+        if len(non_ui_plans) > 0 or len(ui_plans) > 0:
+            print_status(f"All {total_plans} plans completed", "SUCCESS")
 
         # Generate results and dashboard
         print_status("Generating results and dashboard...", "INFO")
         df = pd.DataFrame(all_results)
         df.to_csv(os.path.join(output_dir, f"{ypad_name}_zResults.csv"), index=False)
         generate_dashboard(df, output_dir, ypad_name)
+        
+        # Clean up empty directories
+        try:
+            removed = cleanup_empty_directories(output_dir)
+            if removed > 0:
+                print_status(f"Cleaned up {removed} empty directory(ies)", "INFO")
+        except Exception as e:
+            # Don't fail if cleanup fails
+            logger.debug(f"Failed to clean up empty directories: {str(e)}")
 
         # Optional: error summary presence
         try:
