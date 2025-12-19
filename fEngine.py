@@ -5,8 +5,10 @@ import pandas as pd
 import argparse
 import logging
 import sys
+import subprocess
+import platform
 from datetime import datetime
-from multiprocessing import Pool, Manager
+import multiprocessing
 try:
     import x.xActions as xActions
 except ImportError:
@@ -31,40 +33,23 @@ logging.getLogger('selenium').setLevel(logging.ERROR)
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('requests').setLevel(logging.ERROR)
 
-# Global print lock for synchronized output (initialized in main)
-print_lock = None
-
 # User-friendly output functions
-def print_header(title, lock=None):
+def print_header(title):
     """Print a formatted header for sections."""
-    lock_to_use = lock or print_lock
-    if lock_to_use:
-        with lock_to_use:
-            print(f"\n{'='*60}")
-            print(f"  {title}")
-            print(f"{'='*60}")
-    else:
-        print(f"\n{'='*60}")
-        print(f"  {title}")
-        print(f"{'='*60}")
+    print(f"\n{'='*60}")
+    print(f"  {title}")
+    print(f"{'='*60}")
 
-def print_progress(current, total, item_name="items", lock=None):
+def print_progress(current, total, item_name="items"):
     """Print progress information."""
-    lock_to_use = lock or print_lock
     percentage = (current / total) * 100 if total > 0 else 0
     bar_length = 30
     filled_length = int(bar_length * current // total) if total > 0 else 0
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    message = f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})"
-    if lock_to_use:
-        with lock_to_use:
-            print(message, end='', flush=True)
-    else:
-        print(message, end='', flush=True)
+    print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
 
-def print_status(message, status="INFO", lock=None):
+def print_status(message, status="INFO"):
     """Print status messages with formatting."""
-    lock_to_use = lock or print_lock
     status_symbols = {
         "INFO": "ℹ️",
         "SUCCESS": "✅", 
@@ -73,12 +58,7 @@ def print_status(message, status="INFO", lock=None):
         "RUNNING": "🔄"
     }
     symbol = status_symbols.get(status, "•")
-    output = f"{symbol} {message}"
-    if lock_to_use:
-        with lock_to_use:
-            print(output)
-    else:
-        print(output)
+    print(f"{symbol} {message}")
 
 def print_summary(stats):
     """Print execution summary."""
@@ -113,6 +93,42 @@ def cleanup_empty_directories(directory):
             pass
     
     return removed_count
+
+def kill_chromedriver_processes():
+    """Kill any running chromedriver processes to prevent conflicts."""
+    try:
+        system = platform.system()
+        
+        if system == 'Windows':
+            # Windows: use taskkill to kill chromedriver.exe processes
+            try:
+                # Kill chromedriver.exe processes
+                subprocess.run(['taskkill', '/F', '/IM', 'chromedriver.exe'], 
+                            stdout=subprocess.DEVNULL, 
+                            stderr=subprocess.DEVNULL,
+                            timeout=5)
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                pass  # Process might not exist, or taskkill not available
+        elif system == 'Linux':
+            # Linux: use pkill to kill chromedriver processes
+            try:
+                subprocess.run(['pkill', '-f', 'chromedriver'], 
+                            stdout=subprocess.DEVNULL, 
+                            stderr=subprocess.DEVNULL,
+                            timeout=5)
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                pass
+        elif system == 'Darwin':  # macOS
+            # macOS: use pkill to kill chromedriver processes
+            try:
+                subprocess.run(['pkill', '-f', 'chromedriver'], 
+                            stdout=subprocess.DEVNULL, 
+                            stderr=subprocess.DEVNULL,
+                            timeout=5)
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                pass
+    except Exception:
+        pass  # Don't fail if process killing fails
 
 # Global cache for action results
 action_cache = {}
@@ -705,7 +721,7 @@ def process_action(args):
 
 def process_plan(args):
     """Process a single plan for a given design."""
-    plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, print_lock = args
+    plan_row, ypad_config, output_dir, timeout, plan_index, total_plans = args
     plan_id = plan_row['PlanId']
     design_ids = str(plan_row['DesignId']).split(';')
     y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
@@ -713,7 +729,7 @@ def process_plan(args):
     results = []
 
     # Show plan execution start
-    print_status(f"Starting plan: {plan_id}", "RUNNING", print_lock)
+    print_status(f"Starting plan: {plan_id}", "RUNNING")
     
     for design_id in design_ids:
         # Suppress technical logging
@@ -729,13 +745,13 @@ def process_plan(args):
             
             # Show action progress
             if result['Result'] == 'Pass':
-                print_status(f"  ✓ [{plan_id}] {action_row['StepInfo']}", "SUCCESS", print_lock)
+                print_status(f"  ✓ {action_row['StepInfo']}", "SUCCESS")
             elif result['Result'] == 'Fail':
-                print_status(f"  ✗ [{plan_id}] {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR", print_lock)
+                print_status(f"  ✗ {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR")
                 # If action marked Critical, stop executing remaining actions for this plan/design
                 is_critical = str(action_row.get('Critical', 'n')).strip().lower() in {'y', 'yes', 'true', '1'}
                 if is_critical:
-                    print_status(f"  → [{plan_id}] Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING", print_lock)
+                    print_status(f"  → Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING")
                     break
 
     # Show plan completion
@@ -744,18 +760,42 @@ def process_plan(args):
     total_actions = len(plan_results)
     
     if passed_actions == total_actions:
-        print_status(f"Plan {plan_id} completed successfully ({passed_actions}/{total_actions} actions)", "SUCCESS", print_lock)
+        print_status(f"Plan {plan_id} completed successfully ({passed_actions}/{total_actions} actions)", "SUCCESS")
     else:
-        print_status(f"Plan {plan_id} completed with issues ({passed_actions}/{total_actions} actions passed)", "WARNING", print_lock)
+        print_status(f"Plan {plan_id} completed with issues ({passed_actions}/{total_actions} actions passed)", "WARNING")
 
-    return (plan_index, results)
+    return results
 
 def main():
     """Main function to execute the test framework."""
     # Clear action cache to ensure fresh execution
-    global action_cache, print_lock
+    global action_cache
     action_cache.clear()
-    print_lock = None  # Will be set per test suite if using parallel execution
+    
+    # Kill any leftover chromedriver processes from previous executions
+    kill_chromedriver_processes()
+    
+    # Clean up any leftover browser drivers from previous executions
+    try:
+        if hasattr(xActions, 'UIActionHandler'):
+            # Clean up shared driver
+            if hasattr(xActions.UIActionHandler, '_shared_driver') and xActions.UIActionHandler._shared_driver:
+                try:
+                    xActions.UIActionHandler._shared_driver.quit()
+                except Exception:
+                    pass
+                xActions.UIActionHandler._shared_driver = None
+            
+            # Clean up thread-local driver if it exists
+            if hasattr(xActions.UIActionHandler, '_thread_local'):
+                if hasattr(xActions.UIActionHandler._thread_local, 'driver') and xActions.UIActionHandler._thread_local.driver:
+                    try:
+                        xActions.UIActionHandler._thread_local.driver.quit()
+                    except Exception:
+                        pass
+                    xActions.UIActionHandler._thread_local.driver = None
+    except Exception:
+        pass  # Don't fail if cleanup fails
     
     parser = argparse.ArgumentParser(description="FoXYiZ Test Framework")
     parser.add_argument('--config', required=False, default='fStart.json', help="Path to the main config JSON file")
@@ -799,7 +839,6 @@ def main():
         pass
 
     # Dynamically adjust thread count based on CPU cores, capped at 4
-    import multiprocessing
     max_threads = min(multiprocessing.cpu_count(), 4)
     thread_count = int(main_config.get("thread_count", max_threads))
     print_status(f"Using {thread_count} threads for parallel execution", "INFO")
@@ -852,81 +891,17 @@ def main():
             print_status("No plans marked for execution (Run=Y)", "WARNING")
             continue
 
-        # Separate plans into UI and non-UI plans to avoid browser conflicts
-        # UI plans must run sequentially to prevent browser driver conflicts
-        y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
-        ui_plans = []
-        non_ui_plans = []
-        
-        for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
-            plan_id = plan_row['PlanId']
-            plan_actions = y2_actions[y2_actions['PlanId'] == plan_id]
-            has_ui_action = any(plan_actions['ActionType'] == 'xUI')
-            
-            if has_ui_action:
-                ui_plans.append((plan_index, plan_row))
-            else:
-                non_ui_plans.append((plan_index, plan_row))
-        
-        # Show plan categorization
-        if len(ui_plans) > 0 and len(non_ui_plans) > 0:
-            print_status(f"Found {len(non_ui_plans)} non-UI plan(s) and {len(ui_plans)} UI plan(s)", "INFO")
-        elif len(ui_plans) > 0:
-            print_status(f"All {len(ui_plans)} plan(s) contain UI actions (will run sequentially)", "INFO")
-        elif len(non_ui_plans) > 0:
-            print_status(f"All {len(non_ui_plans)} plan(s) are non-UI (can run in parallel)", "INFO")
-        
+        # Process plans sequentially for better user experience
         all_results = []
-        total_plans = len(plans_to_run)
-        
-        # Process non-UI plans in parallel (faster, no browser conflicts)
-        if len(non_ui_plans) > 0:
-            if thread_count > 1 and len(non_ui_plans) > 1:
-                print_status(f"Processing {len(non_ui_plans)} non-UI plan(s) in parallel ({thread_count} workers)...", "INFO")
-                
-                # Create a manager for shared lock
-                manager = Manager()
-                print_lock = manager.Lock()
-                
-                # Prepare arguments for parallel processing
-                plan_args_list = []
-                for plan_index, plan_row in non_ui_plans:
-                    plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, print_lock)
-                    plan_args_list.append(plan_args)
-                
-                # Process non-UI plans in parallel
-                with Pool(processes=thread_count) as pool:
-                    plan_results = pool.map(process_plan, plan_args_list)
-                
-                # Sort results by plan_index to maintain order and flatten
-                plan_results.sort(key=lambda x: x[0])
-                for _, results in plan_results:
-                    all_results.extend(results)
-                
-                # Show progress after parallel execution
-                print_progress(len(non_ui_plans), total_plans, "plans")
-            else:
-                # Sequential execution for non-UI plans (single thread or single plan)
-                print_status(f"Processing {len(non_ui_plans)} non-UI plan(s) sequentially...", "INFO")
-                for non_ui_index, (plan_index, plan_row) in enumerate(non_ui_plans, 1):
-                    plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, None)
-                    plan_index_result, results = process_plan(plan_args)
-                    all_results.extend(results)
-                    print_progress(non_ui_index, total_plans, "plans")
-        
-        # Process UI plans sequentially (prevents browser driver conflicts)
-        if len(ui_plans) > 0:
-            print_status(f"Processing {len(ui_plans)} UI plan(s) sequentially (to avoid browser conflicts)...", "INFO")
-            for ui_index, (plan_index, plan_row) in enumerate(ui_plans, 1):
-                plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, total_plans, None)
-                plan_index_result, results = process_plan(plan_args)
-                all_results.extend(results)
-                completed = len(non_ui_plans) + ui_index
-                print_progress(completed, total_plans, "plans")
-        
+        for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
+            plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, len(plans_to_run))
+            results = process_plan(plan_args)
+            all_results.extend(results)
+            
+            # Show progress
+            print_progress(plan_index, len(plans_to_run), "plans")
+
         print()  # New line after progress bar
-        if len(non_ui_plans) > 0 or len(ui_plans) > 0:
-            print_status(f"All {total_plans} plans completed", "SUCCESS")
 
         # Generate results and dashboard
         print_status("Generating results and dashboard...", "INFO")
@@ -977,8 +952,53 @@ def main():
         
         print_summary(summary_stats)
         print_status(f"Test suite '{ypad_name}' completed successfully!", "SUCCESS")
+        
+        # Clean up browser drivers after each test suite to prevent issues on next execution
+        try:
+            if hasattr(xActions, 'UIActionHandler'):
+                # Clean up shared driver
+                if hasattr(xActions.UIActionHandler, '_shared_driver') and xActions.UIActionHandler._shared_driver:
+                    try:
+                        xActions.UIActionHandler._shared_driver.quit()
+                    except Exception:
+                        pass
+                    xActions.UIActionHandler._shared_driver = None
+                
+                # Clean up thread-local driver if it exists
+                if hasattr(xActions.UIActionHandler, '_thread_local'):
+                    if hasattr(xActions.UIActionHandler._thread_local, 'driver') and xActions.UIActionHandler._thread_local.driver:
+                        try:
+                            xActions.UIActionHandler._thread_local.driver.quit()
+                        except Exception:
+                            pass
+                        xActions.UIActionHandler._thread_local.driver = None
+        except Exception:
+            pass  # Don't fail if cleanup fails
 
 if __name__ == "__main__":
+    # Multiprocessing support for Windows and PyInstaller
+    # Freeze support must be called first for PyInstaller executables
+    try:
+        multiprocessing.freeze_support()
+    except Exception:
+        pass  # Not running as frozen executable, continue normally
+    
+    # Set start method to 'spawn' on Windows for better compatibility
+    # This must be called before any multiprocessing operations
+    try:
+        if sys.platform == 'win32':
+            multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        # Start method already set, ignore
+        pass
+    except Exception:
+        # Other platforms or errors, continue
+        pass
+    
+    # Note: sys.argv filtering for worker processes is handled automatically
+    # by multiprocessing when using Pool. Since we process sequentially,
+    # no additional filtering is needed here.
+    
     try:
         main()
     except KeyboardInterrupt:
