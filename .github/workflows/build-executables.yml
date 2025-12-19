@@ -54,7 +54,7 @@ jobs:
     - name: Setup Chrome (Windows)
       if: runner.os == 'Windows'
       run: |
-        choco install googlechrome -y
+        choco install googlechrome -y --ignore-checksums
 
     - name: Build executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
