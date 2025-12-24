@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FoXYiZ Test Dashboard - {YPAD_NAME}</title>
+    <title>FoXYiZ Results Dashboard - {YPAD_NAME}</title>
     <style>
         /* Modern CSS Reset and Base Styles */
         * {
@@ -600,14 +600,14 @@
     <div class="dashboard-container">
         <!-- Header Section -->
         <header class="header">
-            <h1>FoXYiZ Test Dashboard</h1>
+            <h1>FoXYiZ Results Dashboard</h1>
             <p>Test Suite: <strong>{YPAD_NAME}</strong> | Generated: <strong>{GENERATION_TIME}</strong></p>
         </header>
 
         <!-- Summary Cards -->
         <div class="summary-grid">
             <div class="summary-card">
-                <h3>Total Tests</h3>
+                <h3>Total Plans</h3>
                 <div class="value" id="total-tests">{TOTAL_ACTIONS}</div>
             </div>
             <div class="summary-card passed">
@@ -632,7 +632,7 @@
         <div class="controls">
             <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" id="search-input" placeholder="Search by Plan ID, Step Info, Action Name, or tags...">
+                <input type="text" id="search-input" placeholder="Search by Design ID, Plan ID, Step Info, Action Name, or tags...">
             </div>
             <div class="filter-buttons">
                 <button class="filter-btn active" data-filter="all">All</button>
@@ -647,13 +647,14 @@
             <!-- Results Table -->
             <div class="results-section">
                 <div class="results-header">
-                    <h2>Test Results</h2>
+                    <h2>Results</h2>
                     <span class="results-count" id="results-count">Showing 0 of 0 results</span>
                 </div>
                 <div class="table-container">
                     <table class="results-table">
                         <thead>
                             <tr>
+                                <th class="sortable" data-sort="designId">Design ID</th>
                                 <th class="sortable" data-sort="planId">Plan ID</th>
                                 <th class="sortable" data-sort="stepId">Step ID</th>
                                 <th>Step Info</th>
@@ -673,11 +674,11 @@
             <!-- Details Panel -->
             <div class="details-panel">
                 <div class="details-header">
-                    <h3>Test Details</h3>
+                    <h3>Details</h3>
                 </div>
                 <div class="details-content">
                     <div class="details-empty" id="details-empty">
-                        Select a test result to view details
+                        Select a result to view details
                     </div>
                     <div id="details-content" class="hidden">
                         <!-- Details will be populated by JavaScript -->
@@ -832,6 +833,7 @@
 
                 // Search filter
                 const searchMatch = !searchTerm || 
+                                  (result.designId && result.designId.toLowerCase().includes(searchTerm)) ||
                                   result.planId.toLowerCase().includes(searchTerm) ||
                                   result.stepInfo.toLowerCase().includes(searchTerm) ||
                                   result.actionName.toLowerCase().includes(searchTerm) ||
@@ -893,7 +895,7 @@
             if (filteredResults.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7" class="text-center" style="padding: 2rem; color: #64748b; font-style: italic;">
+                        <td colspan="8" class="text-center" style="padding: 2rem; color: #64748b; font-style: italic;">
                             No results found matching your criteria
                         </td>
                     </tr>
@@ -929,6 +931,7 @@
             }
 
             row.innerHTML = `
+                <td><strong>${result.designId || 'N/A'}</strong></td>
                 <td><strong>${result.planId}</strong></td>
                 <td>${result.stepId}</td>
                 <td>${result.stepInfo}</td>
