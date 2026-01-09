@@ -536,12 +536,22 @@ def process_action(args):
     # Suppress technical logging - only log warnings and errors
     # logger.info(f"Processing action for PlanId={plan_id}")
 
-    # Resolve variables from y3Designs.csv
+    # Resolve variables from y3Designs.csv (load all design files and concatenate)
     try:
-        y3_designs = load_csv(ypad_config['input_files']['yDesigns'][0])
+        y3_designs_list = []
+        for design_file in ypad_config['input_files']['yDesigns']:
+            try:
+                df = load_csv(design_file)
+                y3_designs_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to load design file {design_file}: {str(e)}")
+        if y3_designs_list:
+            y3_designs = pd.concat(y3_designs_list, ignore_index=True)
+        else:
+            y3_designs = pd.DataFrame()
     except Exception as e:
         # If loading designs fails, log but continue (variables won't be resolved)
-        logger.warning(f"Failed to load y3Designs.csv: {str(e)}")
+        logger.warning(f"Failed to load y3Designs files: {str(e)}")
         y3_designs = pd.DataFrame()
     
     import re
@@ -645,7 +655,9 @@ def process_action(args):
                                 pass
                         
                         # Use word boundary replacement to avoid partial matches
-                        pattern = r'\b' + re.escape(data_name) + r'\b'
+                        # But exclude matches that are part of dot-notation paths (e.g., coord.lat should not replace 'lat')
+                        # Match variable name only when it's not preceded by a dot and not followed by a dot
+                        pattern = r'(?<!\.)\b' + re.escape(data_name) + r'\b(?!\.)'
                         # Use lambda to avoid regex interpretation of replacement string
                         input_data = re.sub(pattern, lambda m: data_value, input_data)
                         expected = re.sub(pattern, lambda m: data_value, expected)
@@ -669,8 +681,26 @@ def process_action(args):
     ui_handler = xActions.UIActionHandler(timeout=timeout)  # Initialize once per plan
     if action_type == "xReuse":
         reused_plan_id = action_name
-        y1_plans = load_csv(ypad_config['input_files']['yPlans'][0])
-        y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
+        # Load all plan files and concatenate
+        y1_plans_list = []
+        for plan_file in ypad_config['input_files']['yPlans']:
+            try:
+                df = load_csv(plan_file)
+                y1_plans_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to load plan file {plan_file}: {str(e)}")
+        y1_plans = pd.concat(y1_plans_list, ignore_index=True) if y1_plans_list else pd.DataFrame()
+        
+        # Load all action files and concatenate
+        y2_actions_list = []
+        for action_file in ypad_config['input_files']['yActions']:
+            try:
+                df = load_csv(action_file)
+                y2_actions_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to load action file {action_file}: {str(e)}")
+        y2_actions = pd.concat(y2_actions_list, ignore_index=True) if y2_actions_list else pd.DataFrame()
+        
         reused_plan = y1_plans[y1_plans['PlanId'] == reused_plan_id]
         if reused_plan.empty:
             raise ValueError(f"Reused plan {reused_plan_id} not found")
@@ -724,7 +754,17 @@ def process_plan(args):
     plan_row, ypad_config, output_dir, timeout, plan_index, total_plans = args
     plan_id = plan_row['PlanId']
     design_ids = str(plan_row['DesignId']).split(';')
-    y2_actions = load_csv(ypad_config['input_files']['yActions'][0])
+    
+    # Load all action files and concatenate
+    y2_actions_list = []
+    for action_file in ypad_config['input_files']['yActions']:
+        try:
+            df = load_csv(action_file)
+            y2_actions_list.append(df)
+        except Exception as e:
+            logger.warning(f"Failed to load action file {action_file}: {str(e)}")
+    y2_actions = pd.concat(y2_actions_list, ignore_index=True) if y2_actions_list else pd.DataFrame()
+    
     actions = y2_actions[y2_actions['PlanId'] == plan_id]
     results = []
 
@@ -862,8 +902,21 @@ def main():
         print_status(f"Test Suite: {ypad_name}", "INFO")
         print_status(f"Output Directory: {output_dir}", "INFO")
 
-        # Load plans and filter by Run=Y
-        y1_plans = load_csv(ypad_config['input_files']['yPlans'][0])
+        # Load plans and filter by Run=Y (load all plan files and concatenate)
+        y1_plans_list = []
+        for plan_file in ypad_config['input_files']['yPlans']:
+            try:
+                df = load_csv(plan_file)
+                y1_plans_list.append(df)
+                print_status(f"Loaded plan file: {os.path.basename(plan_file)} ({len(df)} plans)", "INFO")
+            except Exception as e:
+                print_status(f"Failed to load plan file {plan_file}: {str(e)}", "ERROR")
+        if y1_plans_list:
+            y1_plans = pd.concat(y1_plans_list, ignore_index=True)
+            print_status(f"Total plans loaded: {len(y1_plans)} from {len(y1_plans_list)} file(s)", "INFO")
+        else:
+            print_status("No plan files could be loaded", "ERROR")
+            continue
         
         # Check if 'Run' column exists (case-insensitive check)
         # Column names should already be cleaned by load_csv, but check anyway
@@ -884,6 +937,44 @@ def main():
         
         # Filter plans where Run='Y' (use actual column name from DataFrame)
         plans_to_run = y1_plans[y1_plans[run_column] == 'Y']
+        
+        # Filter by tags if specified in main_config
+        # If "tags" field doesn't exist in JSON, treat it as empty (run all plans)
+        tags_config = main_config.get("tags", [])
+        # Handle both list and single string/None cases
+        if tags_config is None:
+            tags_config = []
+        elif isinstance(tags_config, str):
+            tags_config = [tags_config] if tags_config.strip() else []
+        elif not isinstance(tags_config, list):
+            tags_config = []
+        
+        # Check if Tags column exists
+        tags_column = None
+        for col in y1_plans.columns:
+            cleaned_col = col.strip().strip('"').strip("'")
+            if cleaned_col.lower() == 'tags':
+                tags_column = col  # Use original column name from DataFrame
+                break
+        
+        # Apply tag filtering if tags are specified and Tags column exists
+        if tags_column and tags_config:
+            # Check if "All" is in tags (case-insensitive)
+            tags_lower = [str(tag).strip().lower() for tag in tags_config if tag]
+            if 'all' in tags_lower:
+                # Run all plans (no tag filtering)
+                print_status("Tag filter: 'All' specified - running all plans", "INFO")
+            else:
+                # Filter plans by matching tags (case-insensitive)
+                def tag_matches(row):
+                    plan_tag = str(row[tags_column]).strip().lower() if pd.notna(row[tags_column]) else ""
+                    return any(plan_tag == tag_lower for tag_lower in tags_lower)
+                
+                plans_to_run = plans_to_run[plans_to_run.apply(tag_matches, axis=1)]
+                if len(tags_lower) > 0:
+                    print_status(f"Tag filter: Running plans with tags: {', '.join(tags_config)}", "INFO")
+        elif tags_config and not tags_column:
+            print_status("Warning: Tags specified but 'Tags' column not found in y1Plans.csv - running all plans", "WARNING")
         
         print_status(f"Found {len(plans_to_run)} plans to execute", "INFO")
         
