@@ -1,6 +1,7 @@
 import time
 from datetime import datetime
 import os
+import sys
 import json
 import requests
 import logging
@@ -40,6 +41,28 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 import re
 # import win32com.client  # Removed SAP dependency for IoT-only project
+
+# Import custom actions handler (optional - gracefully handle if not present)
+try:
+    import x.xCustom as xCustom
+    CUSTOM_AVAILABLE = True
+except ImportError:
+    try:
+        # Fallback for bundled execution
+        x_dir = None
+        try:
+            x_dir = os.path.abspath(os.path.join(sys._MEIPASS, 'x'))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        if not x_dir or not os.path.isdir(x_dir):
+            x_dir = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+        if x_dir not in sys.path:
+            sys.path.insert(0, x_dir)
+        import xCustom  # type: ignore[import-not-found]
+        CUSTOM_AVAILABLE = True
+    except ImportError:
+        CUSTOM_AVAILABLE = False
+        xCustom = None
 
 """
 Selenium UI Actions with robust selector handling and debug artifacts.
@@ -999,11 +1022,26 @@ class JSONActionHandler(ActionHandler):
         if len(vIn) != 2:
             raise ValueError(f"Invalid input for xCompareJson: {aIn}. Expected 'key_path;expected_value'")
         key_path, expected_value = vIn
-        value = self._get_json_value(APIActionHandler._last_response, key_path)
-        # Convert both to strings for comparison to handle type mismatches (e.g., int 200 vs string "200")
-        result = str(str(value) == str(expected_value))
-        logger.info(f"JSON comparison result: {result}")
-        return result
+        try:
+            value = self._get_json_value(APIActionHandler._last_response, key_path)
+            # Convert both to strings for comparison to handle type mismatches (e.g., int 200 vs string "200")
+            result = str(str(value) == str(expected_value))
+            logger.info(f"JSON comparison result: {result}")
+            return result
+        except ValueError as e:
+            # If key doesn't exist, check if it's because of an API error (404, etc.)
+            # In that case, return "False" instead of raising an error
+            if APIActionHandler._last_response:
+                try:
+                    cod = self._get_json_value(APIActionHandler._last_response, 'cod')
+                    # If cod is not 200, it's an API error, return False gracefully
+                    if str(cod) != "200":
+                        logger.info(f"JSON key '{key_path}' not found due to API error (cod={cod}), returning False")
+                        return "False"
+                except ValueError:
+                    pass
+            # Re-raise the original error if it's not an API error case
+            raise e
 
     def xValidateJson(self, aIn):
         """Validate if a key exists in the JSON response."""
@@ -2116,10 +2154,13 @@ def runAction(aT, aName, aIn, aOut=None, aExpected=None, plan_id=None, design_id
         "xIoT": IoTActionHandler(timeout=timeout),
         "xTime": TimeActionHandler(timeout=timeout),
         "xPhone": PhoneActionHandler(timeout=timeout),
+        "xCustom": xCustom.CustomActionHandler(timeout=timeout) if CUSTOM_AVAILABLE else None,
         "xReuse": None
     }
     handler = handler or handlers.get(aT)
     if not handler and aT != "xReuse":
+        if aT == "xCustom" and not CUSTOM_AVAILABLE:
+            raise ValueError(f"Custom actions not available. Ensure x/xCustom.py exists and is properly configured.")
         raise ValueError(f"Unknown action type: {aT}")
 
     start_time = time.time()
