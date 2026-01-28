@@ -2,3 +2,4 @@ pandas
 requests
 selenium
 pyinstaller
+openpyxl

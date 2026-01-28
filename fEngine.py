@@ -170,45 +170,139 @@ def load_config(config_path):
         return json.load(f)
 
 def load_csv(file_path):
-    """Load CSV file into a DataFrame."""
+    """
+    Load data file (CSV, Excel, TXT, or JSON) into a DataFrame.
+    Supports multiple file formats while maintaining the same template structure.
+    """
     resolved = file_path
     if not os.path.isabs(file_path):
         resolved = _resource_path(file_path)
-    # Read CSV with explicit encoding and handle various CSV formats
-    # Use doublequote=True to properly handle escaped quotes in CSV values
-    # Try multiple encodings and quote handling options
-    # Add better error handling for Linux compatibility
-    last_error = None
-    try:
-        df = pd.read_csv(resolved, encoding='utf-8-sig', quotechar='"', doublequote=True)  # utf-8-sig handles BOM
-    except Exception as e:
-        last_error = e
-        # Fallback: try without quotechar specification
-        try:
-            df = pd.read_csv(resolved, encoding='utf-8-sig', doublequote=True)
-        except Exception as e2:
-            last_error = e2
-            # Last resort: try default encoding
-            try:
-                df = pd.read_csv(resolved, doublequote=True)
-            except Exception as e3:
-                last_error = e3
-                # Final fallback: basic read
-                try:
-                    df = pd.read_csv(resolved)
-                except Exception as e4:
-                    # If all attempts fail, raise with helpful message
-                    raise Exception(f"Failed to read CSV file '{resolved}'. Last error: {str(e4)}. "
-                                  f"Previous errors: {str(e)}, {str(e2)}, {str(e3)}")
     
-    # Clean column names: strip whitespace and remove quotes
+    # Get file extension to determine file type
+    file_ext = os.path.splitext(resolved)[1].lower()
+    
+    last_error = None
+    df = None
+    
+    # Read file based on extension
+    if file_ext in ['.csv', '.txt']:
+        # CSV and TXT files - treat both as CSV (TXT can be tab or comma delimited)
+        # Try comma first, then tab delimiter for TXT files
+        try:
+            df = pd.read_csv(resolved, encoding='utf-8-sig', quotechar='"', doublequote=True)  # utf-8-sig handles BOM
+        except Exception as e:
+            last_error = e
+            # For TXT files, try tab delimiter
+            if file_ext == '.txt':
+                try:
+                    df = pd.read_csv(resolved, encoding='utf-8-sig', sep='\t', quotechar='"', doublequote=True)
+                except Exception as e2:
+                    last_error = e2
+                    # Try comma delimiter
+                    try:
+                        df = pd.read_csv(resolved, encoding='utf-8-sig', sep=',', quotechar='"', doublequote=True)
+                    except Exception as e3:
+                        last_error = e3
+                        # Fallback: try without quotechar specification
+                        try:
+                            df = pd.read_csv(resolved, encoding='utf-8-sig', doublequote=True)
+                        except Exception as e4:
+                            last_error = e4
+                            # Last resort: try default encoding
+                            try:
+                                df = pd.read_csv(resolved, doublequote=True)
+                            except Exception as e5:
+                                last_error = e5
+                                # Final fallback: basic read
+                                try:
+                                    df = pd.read_csv(resolved)
+                                except Exception as e6:
+                                    raise Exception(f"Failed to read TXT/CSV file '{resolved}'. Last error: {str(e6)}. "
+                                                  f"Previous errors: {str(e)}, {str(e2)}, {str(e3)}, {str(e4)}, {str(e5)}")
+            else:
+                # For CSV files, try fallback options
+                try:
+                    df = pd.read_csv(resolved, encoding='utf-8-sig', doublequote=True)
+                except Exception as e2:
+                    last_error = e2
+                    # Last resort: try default encoding
+                    try:
+                        df = pd.read_csv(resolved, doublequote=True)
+                    except Exception as e3:
+                        last_error = e3
+                        # Final fallback: basic read
+                        try:
+                            df = pd.read_csv(resolved)
+                        except Exception as e4:
+                            # If all attempts fail, raise with helpful message
+                            raise Exception(f"Failed to read CSV file '{resolved}'. Last error: {str(e4)}. "
+                                          f"Previous errors: {str(e)}, {str(e2)}, {str(e3)}")
+    
+    elif file_ext in ['.xlsx', '.xls']:
+        # Excel files
+        try:
+            df = pd.read_excel(resolved, engine='openpyxl')
+        except ImportError:
+            raise Exception(f"Excel file support requires 'openpyxl' package. Please install it: pip install openpyxl")
+        except Exception as e:
+            last_error = e
+            # Try with xlrd engine for older .xls files
+            if file_ext == '.xls':
+                try:
+                    df = pd.read_excel(resolved, engine='xlrd')
+                except ImportError:
+                    raise Exception(f"Excel .xls file support requires 'xlrd' package. Please install it: pip install xlrd")
+                except Exception as e2:
+                    raise Exception(f"Failed to read Excel file '{resolved}'. Last error: {str(e2)}. "
+                                  f"Previous error: {str(e)}")
+            else:
+                raise Exception(f"Failed to read Excel file '{resolved}'. Error: {str(e)}")
+    
+    elif file_ext == '.json':
+        # JSON files
+        try:
+            df = pd.read_json(resolved, orient='records')
+        except Exception as e:
+            last_error = e
+            # Try reading as JSON lines (JSONL) format
+            try:
+                df = pd.read_json(resolved, lines=True)
+            except Exception as e2:
+                last_error = e2
+                # Try reading JSON and converting to DataFrame
+                try:
+                    with open(resolved, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if isinstance(data, list):
+                        df = pd.DataFrame(data)
+                    elif isinstance(data, dict):
+                        # If it's a dict, try to find a list or convert values
+                        if 'data' in data and isinstance(data['data'], list):
+                            df = pd.DataFrame(data['data'])
+                        else:
+                            df = pd.DataFrame([data])
+                    else:
+                        raise Exception(f"Unsupported JSON structure in '{resolved}'")
+                except Exception as e3:
+                    raise Exception(f"Failed to read JSON file '{resolved}'. Last error: {str(e3)}. "
+                                  f"Previous errors: {str(e)}, {str(e2)}")
+    
+    else:
+        raise Exception(f"Unsupported file format '{file_ext}' for file '{resolved}'. "
+                       f"Supported formats: .csv, .txt, .xlsx, .xls, .json")
+    
+    if df is None or df.empty:
+        raise Exception(f"File '{resolved}' is empty or could not be read properly")
+    
+    # Clean column names: strip whitespace and remove quotes (same template as CSV)
     df.columns = df.columns.str.strip().str.strip('"').str.strip("'")
     
-    # Fix PlanId column to be string if it exists
+    # Fix PlanId column to be string if it exists (same template as CSV)
     if 'PlanId' in df.columns:
         # Only add 'P' prefix if it's not already there
         df['PlanId'] = df['PlanId'].astype(str)
         df['PlanId'] = df['PlanId'].apply(lambda x: x if x.startswith('P') else 'P' + x)
+    
     return df
 
 def generate_dashboard(df, output_dir, ypad_name):
@@ -1104,4 +1198,3 @@ if __name__ == "__main__":
         except Exception:
             pass
         sys.exit(130)
-
