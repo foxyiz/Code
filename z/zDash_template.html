@@ -205,12 +205,45 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .breadcrumb-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
         }
 
         .results-header h2 {
             font-size: 1.25rem;
             font-weight: 600;
             color: #1e293b;
+        }
+
+        .back-btn {
+            padding: 0.4rem 0.75rem;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .back-btn:hover {
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .back-btn.hidden {
+            display: none !important;
+        }
+
+        .back-btn:not(.hidden) {
+            display: inline-flex;
         }
 
         .results-count {
@@ -285,6 +318,36 @@
         .results-table tr.selected {
             background: #eff6ff;
             border-left: 4px solid #667eea;
+        }
+
+        .results-table tr.drill-row {
+            cursor: pointer;
+        }
+
+        .results-table tr.drill-row td:first-child {
+            font-weight: 600;
+        }
+
+        .expand-icon {
+            display: inline-block;
+            transition: transform 0.2s ease;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+
+        .expand-icon.open {
+            transform: rotate(90deg);
+        }
+
+        .design-tag {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            background: #e0e7ff;
+            color: #3730a3;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.25rem;
         }
 
         /* Status Badges */
@@ -632,7 +695,7 @@
         <div class="controls">
             <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" id="search-input" placeholder="Search by Design ID, Plan ID, Step Info, Action Name, or tags...">
+                <input type="text" id="search-input" placeholder="Search plans or actions...">
             </div>
             <div class="filter-buttons">
                 <button class="filter-btn active" data-filter="all">All</button>
@@ -644,28 +707,29 @@
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Results Table -->
+            <!-- Results Table (Plans → Actions → Details) -->
             <div class="results-section">
                 <div class="results-header">
-                    <h2>Results</h2>
-                    <span class="results-count" id="results-count">Showing 0 of 0 results</span>
+                    <div class="breadcrumb-row">
+                        <h2 id="view-title">Plans</h2>
+                        <button type="button" class="back-btn hidden" id="back-to-plans" title="Back to plans">← Back to plans</button>
+                    </div>
+                    <span class="results-count" id="results-count">0 plans</span>
                 </div>
                 <div class="table-container">
-                    <table class="results-table">
-                        <thead>
+                    <table class="results-table" id="results-table">
+                        <thead id="results-thead">
                             <tr>
-                                <th class="sortable" data-sort="designId">Design ID</th>
                                 <th class="sortable" data-sort="planId">Plan ID</th>
-                                <th class="sortable" data-sort="stepId">Step ID</th>
-                                <th>Step Info</th>
-                                <th>Action</th>
                                 <th class="sortable" data-sort="result">Status</th>
+                                <th>Passed</th>
+                                <th>Failed</th>
                                 <th class="sortable" data-sort="timeTaken">Duration</th>
-                                <th>Actions</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody id="results-tbody">
-                            <!-- Results will be populated by JavaScript -->
+                            <!-- Plans or actions populated by JavaScript -->
                         </tbody>
                     </table>
                 </div>
@@ -678,7 +742,7 @@
                 </div>
                 <div class="details-content">
                     <div class="details-empty" id="details-empty">
-                        Select a result to view details
+                        <span id="details-empty-text">Click a plan to view its actions</span>
                     </div>
                     <div id="details-content" class="hidden">
                         <!-- Details will be populated by JavaScript -->
@@ -769,193 +833,255 @@
         // Replace the above mock data with actual data parsing:
         // const testResults = {RESULTS_DATA_JSON};
 
-        // ===== APPLICATION STATE =====
+        // ===== PLAN AGGREGATION (from testResults) =====
+        function buildPlanSummary() {
+            const byPlan = {};
+            testResults.forEach(r => {
+                const pid = r.planId || '';
+                if (!byPlan[pid]) {
+                    byPlan[pid] = { planId: pid, passed: 0, failed: 0, pending: 0, timeTaken: 0, actions: [] };
+                }
+                const rec = byPlan[pid];
+                rec.actions.push(r);
+                rec.timeTaken += (r.timeTaken || 0);
+                if (r.result === 'Pass') rec.passed++;
+                else if (r.result === 'Fail') rec.failed++;
+                else rec.pending++;
+            });
+            const plans = Object.values(byPlan).map(p => ({
+                ...p,
+                result: p.failed > 0 ? 'Fail' : (p.pending > 0 ? null : 'Pass'),
+                total: p.passed + p.failed + p.pending
+            }));
+            return plans;
+        }
+
+        let planSummary = [];
         let currentFilter = 'all';
         let currentSort = { column: null, direction: 'asc' };
-        let filteredResults = [...testResults];
-        let selectedRow = null;
+        let viewState = { mode: 'plans', planId: null };
+        let selectedAction = null;
+        let filteredPlans = [];
+        let filteredActions = [];
 
         // ===== INITIALIZATION =====
         document.addEventListener('DOMContentLoaded', function() {
+            planSummary = buildPlanSummary();
             initializeEventListeners();
-            renderResults();
+            applyFilters();
+            renderView();
             updateSummaryCards();
         });
 
         function initializeEventListeners() {
-            // Search input
-            document.getElementById('search-input').addEventListener('input', handleSearch);
-
-            // Filter buttons
+            document.getElementById('search-input').addEventListener('input', () => applyFilters());
             document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.addEventListener('click', handleFilter);
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentFilter = this.dataset.filter;
+                    applyFilters();
+                });
             });
-
-            // Sort headers
-            document.querySelectorAll('.sortable').forEach(header => {
-                header.addEventListener('click', handleSort);
+            document.getElementById('back-to-plans').addEventListener('click', function() {
+                viewState.mode = 'plans';
+                viewState.planId = null;
+                selectedAction = null;
+                document.getElementById('details-empty').classList.remove('hidden');
+                document.getElementById('details-content').classList.add('hidden');
+                document.getElementById('back-to-plans').classList.add('hidden');
+                document.getElementById('view-title').textContent = 'Plans';
+                var emptyText = document.getElementById('details-empty-text');
+                if (emptyText) emptyText.textContent = 'Click a plan to view its actions';
+                applyFilters();
+                renderView();
             });
-
-            // Modal close events
             document.getElementById('screenshot-modal').addEventListener('click', function(e) {
                 if (e.target === this) closeModal();
             });
-
-            // Keyboard events
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') closeModal();
             });
         }
 
-        // ===== FILTERING AND SEARCH =====
-        function handleSearch(e) {
-            const searchTerm = e.target.value.toLowerCase();
-            applyFilters(searchTerm);
-        }
-
-        function handleFilter(e) {
-            // Update active filter button
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            e.target.classList.add('active');
-            
-            currentFilter = e.target.dataset.filter;
+        function applyFilters() {
             const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            applyFilters(searchTerm);
-        }
-
-        function applyFilters(searchTerm = '') {
-            filteredResults = testResults.filter(result => {
-                // Status filter
-                const statusMatch = currentFilter === 'all' || 
-                                  (currentFilter === 'pass' && result.result === 'Pass') ||
-                                  (currentFilter === 'fail' && result.result === 'Fail') ||
-                                  (currentFilter === 'pending' && !result.result);
-
-                // Search filter
-                const searchMatch = !searchTerm || 
-                                  (result.designId && result.designId.toLowerCase().includes(searchTerm)) ||
-                                  result.planId.toLowerCase().includes(searchTerm) ||
-                                  result.stepInfo.toLowerCase().includes(searchTerm) ||
-                                  result.actionName.toLowerCase().includes(searchTerm) ||
-                                  result.actionType.toLowerCase().includes(searchTerm);
-
-                return statusMatch && searchMatch;
-            });
-
-            renderResults();
-        }
-
-        // ===== SORTING =====
-        function handleSort(e) {
-            const column = e.target.dataset.sort;
-            
-            if (currentSort.column === column) {
-                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            if (viewState.mode === 'plans') {
+                filteredPlans = planSummary.filter(p => {
+                    const statusMatch = currentFilter === 'all' ||
+                        (currentFilter === 'pass' && p.result === 'Pass') ||
+                        (currentFilter === 'fail' && p.result === 'Fail') ||
+                        (currentFilter === 'pending' && p.result == null);
+                    const searchMatch = !searchTerm || (p.planId && p.planId.toLowerCase().includes(searchTerm));
+                    return statusMatch && searchMatch;
+                });
+                sortPlans();
             } else {
-                currentSort.column = column;
-                currentSort.direction = 'asc';
+                const plan = planSummary.find(p => p.planId === viewState.planId);
+                const actions = plan ? plan.actions : [];
+                filteredActions = actions.filter(a => {
+                    const statusMatch = currentFilter === 'all' ||
+                        (currentFilter === 'pass' && a.result === 'Pass') ||
+                        (currentFilter === 'fail' && a.result === 'Fail') ||
+                        (currentFilter === 'pending' && a.result == null);
+                    const searchMatch = !searchTerm ||
+                        (a.stepId && String(a.stepId).toLowerCase().includes(searchTerm)) ||
+                        (a.stepInfo && a.stepInfo.toLowerCase().includes(searchTerm)) ||
+                        (a.actionName && a.actionName.toLowerCase().includes(searchTerm)) ||
+                        (a.designId && a.designId.toLowerCase().includes(searchTerm));
+                    return statusMatch && searchMatch;
+                });
+                sortActions();
             }
+            renderView();
+        }
 
-            // Update sort indicators
-            document.querySelectorAll('.sortable').forEach(header => {
-                header.classList.remove('sort-asc', 'sort-desc');
+        function sortPlans() {
+            const col = currentSort.column || 'planId';
+            const dir = currentSort.direction === 'desc' ? 1 : -1;
+            filteredPlans.sort((a, b) => {
+                let av = a[col], bv = b[col];
+                if (col === 'timeTaken') { av = Number(av) || 0; bv = Number(bv) || 0; return (av - bv) * dir; }
+                av = String(av || '').toLowerCase();
+                bv = String(bv || '').toLowerCase();
+                return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
             });
-            
-            e.target.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
 
-            // Sort the filtered results
-            filteredResults.sort((a, b) => {
-                let aVal = a[column];
-                let bVal = b[column];
-
-                // Handle different data types
-                if (column === 'timeTaken') {
-                    aVal = parseFloat(aVal) || 0;
-                    bVal = parseFloat(bVal) || 0;
-                } else {
-                    aVal = String(aVal).toLowerCase();
-                    bVal = String(bVal).toLowerCase();
-                }
-
-                if (aVal < bVal) return currentSort.direction === 'asc' ? -1 : 1;
-                if (aVal > bVal) return currentSort.direction === 'asc' ? 1 : -1;
-                return 0;
+        function sortActions() {
+            const col = currentSort.column || 'stepId';
+            const dir = currentSort.direction === 'desc' ? 1 : -1;
+            filteredActions.sort((a, b) => {
+                let av = a[col], bv = b[col];
+                if (col === 'timeTaken') { av = Number(av) || 0; bv = Number(bv) || 0; return (av - bv) * dir; }
+                av = String(av || '').toLowerCase();
+                bv = String(bv || '').toLowerCase();
+                return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
             });
+        }
 
-            renderResults();
+        function setupSortHeaders() {
+            const thead = document.getElementById('results-thead');
+            thead.querySelectorAll('.sortable').forEach(header => {
+                header.onclick = function() {
+                    const col = this.dataset.sort;
+                    if (currentSort.column === col) currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    else { currentSort.column = col; currentSort.direction = 'asc'; }
+                    thead.querySelectorAll('.sortable').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+                    this.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+                    applyFilters();
+                };
+            });
         }
 
         // ===== RENDERING =====
-        function renderResults() {
+        function renderView() {
             const tbody = document.getElementById('results-tbody');
-            const resultsCount = document.getElementById('results-count');
-            
-            tbody.innerHTML = '';
-            
-            if (filteredResults.length === 0) {
-                tbody.innerHTML = `
+            const thead = document.getElementById('results-thead');
+            const countEl = document.getElementById('results-count');
+            const backBtn = document.getElementById('back-to-plans');
+            const viewTitle = document.getElementById('view-title');
+
+            if (viewState.mode === 'plans') {
+                backBtn.classList.add('hidden');
+                viewTitle.textContent = 'Plans';
+                thead.innerHTML = `
                     <tr>
-                        <td colspan="8" class="text-center" style="padding: 2rem; color: #64748b; font-style: italic;">
-                            No results found matching your criteria
-                        </td>
-                    </tr>
-                `;
-                resultsCount.textContent = 'No results found';
-                return;
+                        <th class="sortable" data-sort="planId">Plan ID</th>
+                        <th class="sortable" data-sort="result">Status</th>
+                        <th>Passed</th>
+                        <th>Failed</th>
+                        <th class="sortable" data-sort="timeTaken">Duration</th>
+                        <th></th>
+                    </tr>`;
+                tbody.innerHTML = '';
+                if (filteredPlans.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding: 2rem; color: #64748b;">No plans match your criteria</td></tr>';
+                } else {
+                    filteredPlans.forEach(p => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'drill-row';
+                        const statusClass = p.result ? p.result.toLowerCase() : 'pending';
+                        const statusText = p.result || 'Pending';
+                        tr.innerHTML = `
+                            <td><strong>${escapeHtml(p.planId)}</strong></td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            <td>${p.passed}</td>
+                            <td>${p.failed}</td>
+                            <td>${(p.timeTaken || 0).toFixed(2)}s</td>
+                            <td><span class="expand-icon">▶</span></td>`;
+                        tr.addEventListener('click', () => {
+                            viewState.mode = 'actions';
+                            viewState.planId = p.planId;
+                            backBtn.classList.remove('hidden');
+                            viewTitle.textContent = `Plans › ${p.planId}`;
+                            var emptyT = document.getElementById('details-empty-text');
+                            if (emptyT) emptyT.textContent = 'Click an action to view designs and details';
+                            document.getElementById('details-empty').classList.remove('hidden');
+                            document.getElementById('details-content').classList.add('hidden');
+                            applyFilters();
+                        });
+                        tbody.appendChild(tr);
+                    });
+                }
+                countEl.textContent = `${filteredPlans.length} plan${filteredPlans.length !== 1 ? 's' : ''}`;
+            } else {
+                thead.innerHTML = `
+                    <tr>
+                        <th class="sortable" data-sort="stepId">Step ID</th>
+                        <th>Step Info</th>
+                        <th>Action</th>
+                        <th class="sortable" data-sort="result">Status</th>
+                        <th class="sortable" data-sort="timeTaken">Duration</th>
+                        <th>Designs</th>
+                        <th></th>
+                    </tr>`;
+                tbody.innerHTML = '';
+                if (filteredActions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 2rem; color: #64748b;">No actions match your criteria</td></tr>';
+                } else {
+                    filteredActions.forEach((action, idx) => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'drill-row';
+                        tr.dataset.actionIndex = idx;
+                        const statusClass = action.result ? action.result.toLowerCase() : 'pending';
+                        const statusText = action.result || 'Pending';
+                        const designTag = action.designId ? `<span class="design-tag">${escapeHtml(action.designId)}</span>` : '—';
+                        let actionsCell = '';
+                        if (action.screenshot) actionsCell += `<button class="action-btn screenshot" onclick="event.stopPropagation(); showScreenshot('${escapeHtml(String(action.screenshot))}', '${escapeHtml(action.planId + ' - ' + action.stepId)}')" title="Screenshot">📷</button>`;
+                        if (action.result === 'Fail' && action.errorDetails) actionsCell += `<button class="action-btn error" onclick="event.stopPropagation(); selectActionRow(this, ${idx})" title="Details">⚠️</button>`;
+                        tr.innerHTML = `
+                            <td>${escapeHtml(String(action.stepId))}</td>
+                            <td>${escapeHtml(action.stepInfo || '')}</td>
+                            <td><code>${escapeHtml(action.actionType || '')}</code> → ${escapeHtml(action.actionName || '')}</td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            <td>${action.timeTaken != null ? Number(action.timeTaken).toFixed(2) + 's' : '—'}</td>
+                            <td>${designTag}</td>
+                            <td>${actionsCell}</td>`;
+                        tr.addEventListener('click', () => {
+                            document.querySelectorAll('.results-table tr.selected').forEach(r => r.classList.remove('selected'));
+                            tr.classList.add('selected');
+                            selectedAction = action;
+                            showDetails(action);
+                        });
+                        tbody.appendChild(tr);
+                    });
+                }
+                countEl.textContent = `${filteredActions.length} action${filteredActions.length !== 1 ? 's' : ''}`;
+                setupSortHeaders();
             }
 
-            filteredResults.forEach((result, index) => {
-                const row = createResultRow(result, index);
-                tbody.appendChild(row);
-            });
-
-            resultsCount.textContent = `Showing ${filteredResults.length} of ${testResults.length} results`;
+            if (viewState.mode === 'plans') setupSortHeaders();
         }
 
-        function createResultRow(result, index) {
-            const row = document.createElement('tr');
-            row.dataset.index = index;
-            row.addEventListener('click', () => selectRow(row, result));
-
-            // Status badge
-            const statusClass = result.result ? result.result.toLowerCase() : 'pending';
-            const statusBadge = `<span class="status-badge ${statusClass}">${result.result || 'Pending'}</span>`;
-
-            // Action buttons
-            let actionButtons = '';
-            if (result.screenshot) {
-                actionButtons += `<button class="action-btn screenshot" onclick="showScreenshot('${result.screenshot}', '${result.planId} - ${result.stepId}')" title="View Screenshot">📷</button>`;
-            }
-            if (result.result === 'Fail' && result.errorDetails) {
-                actionButtons += `<button class="action-btn error" onclick="showErrorDetails(${index})" title="View Error Details">⚠️</button>`;
-            }
-
-            row.innerHTML = `
-                <td><strong>${result.designId || 'N/A'}</strong></td>
-                <td><strong>${result.planId}</strong></td>
-                <td>${result.stepId}</td>
-                <td>${result.stepInfo}</td>
-                <td><code>${result.actionType}</code> → ${result.actionName}</td>
-                <td>${statusBadge}</td>
-                <td>${result.timeTaken ? result.timeTaken.toFixed(2) + 's' : '-'}</td>
-                <td>${actionButtons}</td>
-            `;
-
-            return row;
-        }
-
-        function selectRow(rowElement, result) {
-            // Remove previous selection
-            document.querySelectorAll('.results-table tr.selected').forEach(row => {
-                row.classList.remove('selected');
-            });
-
-            // Add selection to clicked row
-            rowElement.classList.add('selected');
-            selectedRow = result;
-
-            // Show details
-            showDetails(result);
+        function selectActionRow(buttonEl, index) {
+            const action = filteredActions[index];
+            if (!action) return;
+            selectedAction = action;
+            document.querySelectorAll('.results-table tr.selected').forEach(r => r.classList.remove('selected'));
+            const row = buttonEl.closest('tr');
+            if (row) row.classList.add('selected');
+            showDetails(action);
         }
 
         function showDetails(result) {
@@ -965,52 +1091,59 @@
             detailsEmpty.classList.add('hidden');
             detailsContent.classList.remove('hidden');
 
+            const designLabel = result.designId ? `Design(s) used in this action: <span class="design-tag">${escapeHtml(result.designId)}</span>` : 'No design linked';
+
             detailsContent.innerHTML = `
                 <div class="detail-section">
+                    <div class="detail-label">Designs used</div>
+                    <div class="detail-value">${designLabel}</div>
+                </div>
+
+                <div class="detail-section">
                     <div class="detail-label">Plan & Step</div>
-                    <div class="detail-value">${result.planId} → ${result.stepId}</div>
+                    <div class="detail-value">${escapeHtml(result.planId)} → ${escapeHtml(String(result.stepId))}</div>
                 </div>
 
                 <div class="detail-section">
                     <div class="detail-label">Action</div>
-                    <div class="detail-value"><code>${result.actionType}</code> → ${result.actionName}</div>
+                    <div class="detail-value"><code>${escapeHtml(result.actionType || '')}</code> → ${escapeHtml(result.actionName || '')}</div>
                 </div>
 
                 <div class="detail-section">
                     <div class="detail-label">Step Description</div>
-                    <div class="detail-value">${result.stepInfo}</div>
+                    <div class="detail-value">${escapeHtml(result.stepInfo || '')}</div>
                 </div>
 
                 <div class="detail-section">
                     <div class="detail-label">Input</div>
-                    <div class="detail-value font-mono">${result.input || 'N/A'}</div>
+                    <div class="detail-value font-mono">${escapeHtml(result.input || 'N/A')}</div>
                 </div>
 
                 <div class="detail-section">
                     <div class="detail-label">Expected</div>
-                    <div class="detail-value">${result.expected || 'N/A'}</div>
+                    <div class="detail-value">${escapeHtml(result.expected || 'N/A')}</div>
                 </div>
 
                 <div class="detail-section">
                     <div class="detail-label">Output</div>
-                    <div class="detail-value ${result.result === 'Fail' ? 'error' : ''}">${result.output || 'N/A'}</div>
+                    <div class="detail-value ${result.result === 'Fail' ? 'error' : ''}">${escapeHtml(result.output || 'N/A')}</div>
                 </div>
 
                 ${result.errorDetails ? `
                 <div class="detail-section">
                     <div class="detail-label">Error Details</div>
                     <div class="detail-value error">
-                        <strong>Type:</strong> ${result.errorDetails.type}<br>
-                        <strong>Message:</strong> ${result.errorDetails.message}<br>
-                        ${result.errorDetails.url ? `<strong>URL:</strong> <a href="${result.errorDetails.url}" target="_blank" rel="noopener noreferrer">${result.errorDetails.url}</a><br>` : ''}
-                        ${result.errorDetails.stackTrace ? `<details><summary>Stack Trace</summary><pre class="font-mono" style="margin-top: 0.5rem; font-size: 0.75rem;">${result.errorDetails.stackTrace}</pre></details>` : ''}
+                        <strong>Type:</strong> ${escapeHtml(result.errorDetails.type || '')}<br>
+                        <strong>Message:</strong> ${escapeHtml(result.errorDetails.message || '')}<br>
+                        ${result.errorDetails.url ? `<strong>URL:</strong> <a href="${escapeHtml(result.errorDetails.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(result.errorDetails.url)}</a><br>` : ''}
+                        ${result.errorDetails.stackTrace ? `<details><summary>Stack Trace</summary><pre class="font-mono" style="margin-top: 0.5rem; font-size: 0.75rem;">${escapeHtml(result.errorDetails.stackTrace)}</pre></details>` : ''}
                     </div>
                 </div>
                 ` : ''}
 
                 <div class="detail-section">
                     <div class="detail-label">Execution Time</div>
-                    <div class="detail-value">${result.time} (${result.timeTaken ? result.timeTaken.toFixed(2) + 's' : 'N/A'})</div>
+                    <div class="detail-value">${escapeHtml(result.time || '')} (${result.timeTaken != null ? Number(result.timeTaken).toFixed(2) + 's' : 'N/A'})</div>
                 </div>
 
                 <div class="detail-section">
@@ -1022,8 +1155,8 @@
                 <div class="detail-section">
                     <div class="detail-label">Screenshot</div>
                     <div class="detail-value">
-                        <img src="${result.screenshot}" alt="Screenshot" class="screenshot-thumbnail" 
-                             onclick="showScreenshot('${result.screenshot}', '${result.planId} - ${result.stepId}')"
+                        <img src="${escapeHtml(result.screenshot)}" alt="Screenshot" class="screenshot-thumbnail" 
+                             onclick="showScreenshot('${escapeHtml(result.screenshot)}', '${escapeHtml(result.planId + ' - ' + result.stepId)}')"
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <span style="display: none; color: #64748b; font-style: italic;">Screenshot not available</span>
                     </div>
@@ -1060,20 +1193,19 @@
 
         // ===== SUMMARY UPDATES =====
         function updateSummaryCards() {
-            const totalTests = testResults.length;
-            const passedTests = testResults.filter(r => r.result === 'Pass').length;
-            const failedTests = testResults.filter(r => r.result === 'Fail').length;
-            const pendingTests = testResults.filter(r => !r.result).length;
-            const totalPlans = new Set(testResults.map(r => r.planId)).size;
-            const totalTime = testResults.reduce((sum, r) => sum + (r.timeTaken || 0), 0);
+            const plans = buildPlanSummary();
+            const totalPlans = plans.length;
+            const passedPlans = plans.filter(p => p.result === 'Pass').length;
+            const failedPlans = plans.filter(p => p.result === 'Fail').length;
+            const pendingPlans = plans.filter(p => p.result == null).length;
+            const totalTime = plans.reduce((sum, p) => sum + (p.timeTaken || 0), 0);
 
-            // These would normally be populated by the template engine
-            // document.getElementById('total-tests').textContent = totalTests;
-            // document.getElementById('passed-tests').textContent = passedTests;
-            // document.getElementById('failed-tests').textContent = failedTests;
-            // document.getElementById('pending-tests').textContent = pendingTests;
-            // document.getElementById('total-plans').textContent = totalPlans;
-            // document.getElementById('total-duration').textContent = totalTime.toFixed(1) + 's';
+            const el = (id) => document.getElementById(id);
+            if (el('total-tests')) el('total-tests').textContent = totalPlans;
+            if (el('passed-tests')) el('passed-tests').textContent = passedPlans;
+            if (el('failed-tests')) el('failed-tests').textContent = failedPlans;
+            if (el('pending-tests')) el('pending-tests').textContent = pendingPlans;
+            if (el('total-duration')) el('total-duration').textContent = totalTime.toFixed(1) + 's';
         }
 
         // ===== UTILITY FUNCTIONS =====
@@ -1102,6 +1234,7 @@
         window.showErrorDetails = showErrorDetails;
         window.closeModal = closeModal;
         window.exportResults = exportResults;
+        window.selectActionRow = selectActionRow;
     </script>
 </body>
 </html>
