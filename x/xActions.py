@@ -211,7 +211,7 @@ class UIActionHandler(ActionHandler):
         if UIActionHandler._shared_driver:
             self._driver = UIActionHandler._shared_driver
 
-    def find_element(self, locator, clickable=False, retries=2):
+    def find_element(self, locator, clickable=False, retries=2, extra_wait_seconds=0):
         """Find element by auto-detected selector (XPath/CSS) with retries.
         Users: You can prefix with 'css=' or 'xpath=' to be explicit. Otherwise
         the handler guesses based on the first character.
@@ -245,8 +245,8 @@ class UIActionHandler(ActionHandler):
             by_type, locator_value = _detect_selector(locator)
         condition = EC.element_to_be_clickable if clickable else EC.presence_of_element_located
         
-        # Increase wait time for cloud/headless environments
-        wait_timeout = self._timeout
+        # Increase wait time for cloud/headless environments; add any extra seconds (e.g. for xWaitFor/xClick)
+        wait_timeout = self._timeout + extra_wait_seconds
         if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes'):
             wait_timeout = max(wait_timeout, 10)  # Minimum 10 seconds for headless/cloud
         
@@ -485,7 +485,7 @@ class UIActionHandler(ActionHandler):
         if not self._driver:
             raise WebDriverException("Driver not initialized")
         try:
-            element = self.find_element(locator, clickable=True)
+            element = self.find_element(locator, clickable=True, extra_wait_seconds=2)
             
             # Scroll element into view first (important for headless mode)
             try:
@@ -558,11 +558,12 @@ class UIActionHandler(ActionHandler):
     def xWaitFor(self, locator):
         """Wait for an element to be present.
         Users: Locator can be CSS or XPath.
+        Uses 2 seconds longer wait than the default timeout for reliability.
         """
         if not self._driver:
             raise WebDriverException("Driver not initialized")
         try:
-            self.find_element(locator)
+            self.find_element(locator, extra_wait_seconds=2)
             logger.info("Element wait successful")
             return "Element is present"
         except Exception as e:
