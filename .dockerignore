@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Test results (optional - comment out if you want to preserve results)
+z/*/
+z/*.csv
+z/*.html
+z/*.png
+z/*.txt
+z/*.log
+
+# Documentation
+*.md
+!README.md
+
+# Others
+_others/
+BUILD.md
+

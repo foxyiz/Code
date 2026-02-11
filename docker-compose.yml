@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  foxyiz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: foxyiz:latest
+    container_name: foxyiz-test-runner
+    volumes:
+      # Mount results directory to persist test outputs
+      - ./z:/app/z
+      # Optional: Mount config files if you want to modify them without rebuilding
+      - ./fStart.json:/app/fStart.json:ro
+      # Optional: Mount test data directories
+      - ./y:/app/y:ro
+      - ./y_val:/app/y_val:ro
+    environment:
+      - FOXYIZ_HEADLESS=true
+      - PYTHONUNBUFFERED=1
+    # Override command if needed
+    # command: ["python", "fEngine.py", "--config", "fStart.json", "--debug"]
+    restart: "no"
+
