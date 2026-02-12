@@ -1,7 +1,9 @@
 {
-  "configs": [ "y/Mix.json"],
-  "thread_count": 4,
-  "timeout": 10,
+  "configs": ["y/FoXYiZ.json"],
+  "thread_count": 1,
+  "timeout": 30,
   "headless": false,
-  "debug": false
+
+  "chrome_binary": "C:/Tools/chrome-win64/chrome-win64/chrome.exe",
+  "chromedriver_path": "C:/Tools/chromedriver-win64/chromedriver-win64/chromedriver.exe"
 }

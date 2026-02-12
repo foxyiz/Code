@@ -263,15 +263,36 @@ class UIActionHandler(ActionHandler):
                     continue
                 raise last_exception
 
-    def xOpenBrowser(self, browser_type="chrome", driver_path=None):
+    def xOpenBrowser(self, browser_type="chrome", driver_path=None, chrome_binary=None):
         """Open a web browser using system PATH or a provided driver_path.
         Users: Ensure the browser driver is installed and on PATH.
         Supports headless mode via FOXYIZ_HEADLESS environment variable.
         Automatically enables headless mode in cloud environments.
+        Chrome binary and driver paths can be configured via fStart.json:
+        - chrome_binary: Path to Chrome executable (e.g., Chrome-win64/chrome.exe)
+        - chromedriver_path: Path to ChromeDriver executable
+        These can also be set via environment variables FOXYIZ_CHROME_BINARY and FOXYIZ_CHROMEDRIVER_PATH.
         """
         if UIActionHandler._shared_driver:
             return "Browser already open"
         browser_type = self.validate_input(browser_type).lower()
+        
+        # Read browser configuration from environment variables if not provided as parameters
+        # This allows fStart.json configuration to be used automatically
+        if not chrome_binary:
+            chrome_binary = os.environ.get('FOXYIZ_CHROME_BINARY', '')
+        if not driver_path:
+            driver_path = os.environ.get('FOXYIZ_CHROMEDRIVER_PATH', '')
+        
+        # Validate Chrome binary path if provided
+        if chrome_binary and not os.path.exists(chrome_binary):
+            logger.warning(f"Chrome binary not found at {chrome_binary}, using system default")
+            chrome_binary = None
+        
+        # Validate ChromeDriver path if provided
+        if driver_path and not os.path.exists(driver_path):
+            logger.warning(f"ChromeDriver not found at {driver_path}, using system PATH")
+            driver_path = None
         
         # Detect headless mode from environment variable
         headless_mode = os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes')
@@ -316,6 +337,10 @@ class UIActionHandler(ActionHandler):
                 # Configure Chrome to minimize noisy logs
                 if ChromeOptions:
                     opts = ChromeOptions()
+                    # Set Chrome binary location if provided (for using specific Chrome version)
+                    if chrome_binary and os.path.exists(chrome_binary):
+                        opts.binary_location = chrome_binary
+                        logger.info(f"Using Chrome binary: {chrome_binary}")
                     opts.add_argument("--log-level=3")
                     opts.add_argument("--disable-logging")
                     opts.add_argument("--no-sandbox")

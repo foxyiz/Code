@@ -45,30 +45,54 @@ def print_progress(current, total, item_name="items"):
     percentage = (current / total) * 100 if total > 0 else 0
     bar_length = 30
     filled_length = int(bar_length * current // total) if total > 0 else 0
-    bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
+    try:
+        bar = '█' * filled_length + '-' * (bar_length - filled_length)
+        print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
+    except UnicodeEncodeError:
+        bar = '#' * filled_length + '-' * (bar_length - filled_length)
+        print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
 
 def print_status(message, status="INFO"):
     """Print status messages with formatting."""
+    # Some Windows consoles default to cp1252 and can't print emoji reliably.
     status_symbols = {
         "INFO": "ℹ️",
-        "SUCCESS": "✅", 
+        "SUCCESS": "✅",
         "WARNING": "⚠️",
         "ERROR": "❌",
-        "RUNNING": "🔄"
+        "RUNNING": "🔄",
+    }
+    ascii_symbols = {
+        "INFO": "[INFO]",
+        "SUCCESS": "[OK]",
+        "WARNING": "[WARN]",
+        "ERROR": "[ERROR]",
+        "RUNNING": "[RUN]",
     }
     symbol = status_symbols.get(status, "•")
-    print(f"{symbol} {message}")
+    try:
+        print(f"{symbol} {message}")
+    except UnicodeEncodeError:
+        safe_message = str(message).encode("ascii", errors="replace").decode("ascii")
+        print(f"{ascii_symbols.get(status, '[INFO]')} {safe_message}")
 
 def print_summary(stats):
     """Print execution summary."""
     print_header("EXECUTION SUMMARY")
-    print(f"📊 Total Plans: {stats['total_plans']}")
-    print(f"✅ Passed: {stats['passed']}")
-    print(f"❌ Failed: {stats['failed']}")
-    print(f"⏱️  Total Time: {stats['total_time']:.2f} seconds")
-    print(f"📁 Results saved to: {stats['output_dir']}")
-    print(f"🌐 Dashboard: {stats['dashboard_path']}")
+    try:
+        print(f"📊 Total Plans: {stats['total_plans']}")
+        print(f"✅ Passed: {stats['passed']}")
+        print(f"❌ Failed: {stats['failed']}")
+        print(f"⏱️  Total Time: {stats['total_time']:.2f} seconds")
+        print(f"📁 Results saved to: {stats['output_dir']}")
+        print(f"🌐 Dashboard: {stats['dashboard_path']}")
+    except UnicodeEncodeError:
+        print(f"Total Plans: {stats['total_plans']}")
+        print(f"Passed: {stats['passed']}")
+        print(f"Failed: {stats['failed']}")
+        print(f"Total Time: {stats['total_time']:.2f} seconds")
+        print(f"Results saved to: {stats['output_dir']}")
+        print(f"Dashboard: {stats['dashboard_path']}")
     print(f"{'='*60}\n")
 
 def cleanup_empty_directories(directory):
@@ -976,6 +1000,26 @@ def main():
     max_threads = min(multiprocessing.cpu_count(), 4)
     thread_count = int(main_config.get("thread_count", max_threads))
     print_status(f"Using {thread_count} threads for parallel execution", "INFO")
+
+    # Set browser configuration from main_config for UI actions
+    chrome_binary = main_config.get('chrome_binary', '')
+    chromedriver_path = main_config.get('chromedriver_path', '')
+    
+    # Set environment variables for xActions to use
+    if chrome_binary:
+        os.environ['FOXYIZ_CHROME_BINARY'] = chrome_binary
+        # Validate path if provided
+        if os.path.exists(chrome_binary):
+            print_status(f"Chrome binary configured: {chrome_binary}", "INFO")
+        else:
+            print_status(f"Warning: Chrome binary not found at {chrome_binary}", "WARNING")
+    if chromedriver_path:
+        os.environ['FOXYIZ_CHROMEDRIVER_PATH'] = chromedriver_path
+        # Validate path if provided
+        if os.path.exists(chromedriver_path):
+            print_status(f"ChromeDriver path configured: {chromedriver_path}", "INFO")
+        else:
+            print_status(f"Warning: ChromeDriver not found at {chromedriver_path}", "WARNING")
 
     start_time = time.time()
     
