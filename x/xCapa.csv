@@ -68,3 +68,4 @@ Time,xTimeWait,Wait for specified duration or condition,duration_seconds;[condit
 Time,xTimeSchedule,Schedule action execution at specific time,schedule_time;action_type;action_name;action_input,Schedule status
 Phone,xMakeCall,Make a phone call via tel: link,phone_number,Call initiated
 Phone,xSendSMS,Send SMS message via sms: link,phone_number;[message],SMS initiated
+API,xGetOAuthTokenForm,Obtain OAuth2 token using application/x-www-form-urlencoded body,token_url;client_id;client_secret;grant_type;scope;[extra_params_json_or_query],access_token or token JSON
