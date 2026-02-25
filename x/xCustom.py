@@ -23,6 +23,9 @@ The method should be named with 'x' prefix in this file:
 import logging
 import os
 import sys
+import json
+import requests
+from urllib.parse import urlencode
 
 # Import the base ActionHandler class
 try:
@@ -84,6 +87,88 @@ class CustomActionHandler(ActionHandler):
         logger.info(f"Example function called with: {param1}, {param2}")
         result = f"Processed: {param1} and {param2}"
         return result
+    
+    def xOAuthFormRequest(self, aIn):
+        """
+        Perform an OAuth2 token request using application/x-www-form-urlencoded body.
+
+        Input format (semicolon-separated):
+            token_url;client_id;client_secret;grant_type;scope;extra_params
+
+        - token_url (required): Token endpoint URL
+        - client_id (required)
+        - client_secret (required)
+        - grant_type (required): e.g. client_credentials, password, refresh_token
+        - scope (optional): space-separated scopes
+        - extra_params (optional): JSON string of additional form parameters, or key1=value1&key2=value2
+
+        Returns:
+            JSON string of the token endpoint response or raises Exception on failure.
+        """
+        raw = self.validate_input(aIn)
+        parts = [p.strip() for p in raw.split(';')]
+        if len(parts) < 4:
+            raise ValueError(f"Invalid input for xOAuthFormRequest: {aIn}. "
+                             f"Expected at least 'token_url;client_id;client_secret;grant_type'")
+
+        token_url = parts[0]
+        client_id = parts[1]
+        client_secret = parts[2]
+        grant_type = parts[3]
+        scope = parts[4] if len(parts) > 4 and parts[4] else None
+        extra = parts[5] if len(parts) > 5 and parts[5] else None
+
+        # Build form data
+        form = {
+            "grant_type": grant_type,
+            "client_id": client_id,
+            "client_secret": client_secret
+        }
+        if scope:
+            form["scope"] = scope
+
+        # Parse extra parameters if provided
+        if extra:
+            # Try JSON first
+            try:
+                extra_obj = json.loads(extra)
+                if isinstance(extra_obj, dict):
+                    form.update(extra_obj)
+            except Exception:
+                # Fallback: parse as key1=value1&key2=value2
+                try:
+                    for kv in extra.split('&'):
+                        if '=' in kv:
+                            k, v = kv.split('=', 1)
+                            form[k] = v
+                except Exception:
+                    # ignore parse errors and continue with basic form
+                    pass
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+        try:
+            timeout_val = getattr(self, '_timeout', 6)
+            resp = requests.post(token_url, data=form, headers=headers, timeout=timeout_val)
+        except Exception as e:
+            logger.error(f"OAuth request failed: {str(e)}")
+            raise
+
+        # Return JSON string or text on failure
+        try:
+            resp.raise_for_status()
+        except Exception as e:
+            # include response body for diagnostics
+            body = resp.text if resp is not None else "<no response>"
+            raise Exception(f"OAuth token request failed ({resp.status_code}): {body}") from e
+
+        # Try to return JSON string
+        try:
+            return json.dumps(resp.json())
+        except Exception:
+            return resp.text
     
     # Add more custom functions below as needed:
     # 

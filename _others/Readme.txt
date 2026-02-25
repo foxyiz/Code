@@ -264,6 +264,39 @@ FoXYiZ leverages AI/LLMs to enhance your automation process:
 **FoXYiZ: Automation Simplified**
 **f(x, y) = z**
 
+## Custom Actions - xOAuthFormRequest
+
+FoXYiZ provides a way for end users to add custom actions without modifying core engine code. A new custom action `xOAuthFormRequest` is available in `x/xCustom.py` and performs OAuth2 token requests using form-encoded bodies (Content-Type: application/x-www-form-urlencoded).
+
+Usage (in `y2Actions`):
+
+```
+PlanId,StepId,StepInfo,ActionType,ActionName,Input,Output,Expected,Critical
+AuthTest,1,Request OAuth Token,xCustom,xOAuthFormRequest,https://httpbin.org/post;client_id;client_secret;client_credentials;scope1 scope2;,,
+```
+
+Input format (semicolon-separated):
+```
+token_url;client_id;client_secret;grant_type;scope;extra_params
+```
+- `token_url` (required): Token endpoint URL  
+- `client_id` (required)  
+- `client_secret` (required)  
+- `grant_type` (required): e.g. `client_credentials`, `password`, `refresh_token`  
+- `scope` (optional): space-separated scopes  
+- `extra_params` (optional): JSON string of additional form parameters, or `key1=value1&key2=value2`
+
+Behavior:
+- Sends a POST request with form data to the token endpoint.  
+- Returns the token endpoint response as a JSON string (or raw text if not JSON).  
+- Fails with a helpful error message on HTTP error, including the response body for diagnostics.
+
+Implementation note:
+- The custom action is implemented in `x/xCustom.py` so core `x/xActions.py` remains unchanged. If you need to customize behavior, add or modify functions in `x/xCustom.py` only.
+
+Testing tip:
+- You can test this action quickly using `https://httpbin.org/post` as the token URL; the endpoint will echo the posted form data as JSON which helps validate requests.
+
 ## Requirements & Installation
 
 FoXYiZ (IoT project) requires the following Python packages (for developer use):
