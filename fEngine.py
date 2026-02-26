@@ -616,8 +616,12 @@ def _generate_basic_dashboard(df, output_dir, ypad_name):
         f.write(html_content)
 
 def process_action(args):
-    """Process a single action for a given plan and design."""
-    plan_id, design_id, action_row, results_dir, timeout, ypad_config = args
+    """Process a single action for a given plan and design.
+    args may include optional previous_results (list of result dicts from earlier steps)
+    so that placeholders like {{step:S2}} can be replaced with that step's Output.
+    """
+    plan_id, design_id, action_row, results_dir, timeout, ypad_config = args[:6]
+    previous_results = args[6] if len(args) > 6 else []
     step_id = action_row['StepId']
     action_type = action_row['ActionType']
     action_name = action_row['ActionName']
@@ -760,6 +764,17 @@ def process_action(args):
                         logger.warning(f"Failed to resolve variable {data_name if 'data_name' in locals() else 'unknown'}: {str(e)}")
                         continue
 
+    # Resolve {{step:StepId}} placeholders from previous steps' Output (same plan/design)
+    for prev in previous_results:
+        if prev.get('PlanId') != plan_id or prev.get('DesignId') != design_id:
+            continue
+        ref_step_id = str(prev.get('StepId', ''))
+        out_val = prev.get('Output', '')
+        if ref_step_id and out_val is not None:
+            placeholder = '{{step:' + ref_step_id + '}}'
+            input_data = input_data.replace(placeholder, str(out_val))
+            expected = expected.replace(placeholder, str(out_val))
+
     # Check cache for repeated actions
     cache_key = f"{plan_id}_{step_id}_{input_data}"
     if cache_key in action_cache:
@@ -803,7 +818,7 @@ def process_action(args):
         # Process all reused actions and collect results (from fEngine.py v1 - better reporting)
         reuse_results = []
         for _, reused_action in reused_actions.iterrows():
-            reused_args = (reused_plan_id, design_id, reused_action, results_dir, timeout, ypad_config)
+            reused_args = (reused_plan_id, design_id, reused_action, results_dir, timeout, ypad_config, reuse_results)
             action_result = process_action(reused_args)
             reuse_results.append(action_result)
             if action_result['ActionType'] == "xUI" and action_result['ActionName'] == "xOpenBrowser":
@@ -871,9 +886,9 @@ def process_plan(args):
         results_dir = os.path.join(output_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{plan_id}")
         os.makedirs(results_dir, exist_ok=True)
 
-        # Process each action
+        # Process each action (pass previous results so {{step:StepId}} can be resolved)
         for action_index, (_, action_row) in enumerate(actions.iterrows(), 1):
-            action_args = (plan_id, design_id, action_row, results_dir, timeout, ypad_config)
+            action_args = (plan_id, design_id, action_row, results_dir, timeout, ypad_config, results)
             result = process_action(action_args)
             results.append(result)
             

@@ -992,6 +992,70 @@ class APIActionHandler(ActionHandler):
         logger.info("API PUT request successful")
         return str(response.status_code)
 
+    def xGetOAuthTokenForm(self, aIn):
+        """
+        Request an OAuth2 token using application/x-www-form-urlencoded body.
+
+        Input format:
+            token_url;client_id;client_secret;grant_type;[scope];[extra_params_json_or_query]
+
+        - token_url (required): token endpoint URL
+        - client_id (required): client id (may be omitted if using other auth)
+        - client_secret (required): client secret (may be omitted if using other auth)
+        - grant_type (required): e.g. client_credentials, password, authorization_code
+        - scope (optional): space-separated scopes
+        - extra_params_json_or_query (optional): JSON object string or query-string (k=v&k2=v2) for additional form params
+
+        Returns:
+            access_token string if present in JSON response, otherwise full JSON/text response.
+        """
+        parts = self.validate_input(aIn).split(';')
+        if len(parts) < 4:
+            raise ValueError("Invalid input for xGetOAuthTokenForm: expected token_url;client_id;client_secret;grant_type;[scope];[extra_params]")
+
+        token_url = parts[0].strip()
+        client_id = parts[1].strip()
+        client_secret = parts[2].strip()
+        grant_type = parts[3].strip()
+        scope = parts[4].strip() if len(parts) >= 5 and parts[4].strip() else None
+        extra = parts[5].strip() if len(parts) >= 6 and parts[5].strip() else None
+
+        data = {'grant_type': grant_type}
+        if client_id:
+            data['client_id'] = client_id
+        if client_secret:
+            data['client_secret'] = client_secret
+        if scope:
+            data['scope'] = scope
+
+        if extra:
+            try:
+                extra_obj = json.loads(extra)
+                if isinstance(extra_obj, dict):
+                    data.update({k: str(v) for k, v in extra_obj.items()})
+            except Exception:
+                try:
+                    for pair in [p for sep in ('&', ';') for p in extra.split(sep)]:
+                        if '=' in pair:
+                            k, v = pair.split('=', 1)
+                            data[k.strip()] = v.strip()
+                except Exception:
+                    data['extra'] = extra
+
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        req_timeout = getattr(self, '_timeout', 6)
+        resp = requests.post(token_url, data=data, headers=headers, timeout=req_timeout)
+        text = resp.text
+        if 200 <= resp.status_code < 300:
+            try:
+                j = resp.json()
+                token = j.get('access_token') or j.get('token') or j.get('id_token')
+                return token if token else json.dumps(j)
+            except Exception:
+                return text
+        else:
+            raise Exception(f"Token request failed: {resp.status_code} {text}")
+
 class JSONActionHandler(ActionHandler):
     """Handles JSON-related actions."""
     def _get_json_value(self, json_data, key_path):
