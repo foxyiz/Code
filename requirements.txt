@@ -3,3 +3,4 @@ requests
 selenium
 pyinstaller
 openpyxl
+python-dotenv

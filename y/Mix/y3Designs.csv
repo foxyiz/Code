@@ -51,8 +51,8 @@ UI,hk_context_menu_link,"css==a[href=""/context_menu""]","css==a[href=""/context
 UI,hk_context_box,css==#hot-spot,css==#hot-spot,css==#hot-spot
 UI,hk_expected_context_alert,You selected a context menu,You selected a context menu,You selected a context menu
 UI,cog_url,https://ui.cogmento.com/?lang=en,https://ui.cogmento.com/?lang=en,https://ui.cogmento.com/?lang=en
-UI,email,user@example.com,,
-UI,password,YOUR_PASSWORD_HERE,,
+UI,email,EMAIL_ID,,
+UI,password,YOUR_PASSWORD,,
 UI,email_xpath,xpath==//input[@name='email'],,
 UI,password_xpath,xpath==//input[@name='password'],,
 UI,login_button_xpath,xpath==//div[text()='Login'],,

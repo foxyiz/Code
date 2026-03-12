@@ -10,6 +10,11 @@ import platform
 from datetime import datetime
 import multiprocessing
 try:
+    from dotenv import load_dotenv, dotenv_values
+except ImportError:
+    load_dotenv = None
+    dotenv_values = None
+try:
     import x.xActions as xActions
 except ImportError:
     # Fallback for bundled execution: add data folder 'x' to sys.path and import module
@@ -132,6 +137,66 @@ def kill_chromedriver_processes():
 
 # Global cache for action results
 action_cache = {}
+
+# Environment variables from .env (sensitive placeholders for y3Designs)
+_env_dict = {}
+
+def _env_path():
+    """Return path to .env file: next to script/exe, then cwd."""
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    for d in (base, os.getcwd()):
+        p = os.path.join(d, '.env')
+        if os.path.isfile(p):
+            return p
+    return None
+
+def load_env():
+    """Load .env into os.environ and return dict of key=value for design placeholder substitution."""
+    global _env_dict
+    path = _env_path()
+    if not path:
+        _env_dict = {}
+        return _env_dict
+    if load_dotenv and dotenv_values:
+        load_dotenv(path)
+        raw = dotenv_values(path)
+        _env_dict = {k: (v if v is not None else '') for k, v in (raw or {}).items()}
+        return _env_dict
+    # Fallback: parse .env manually (KEY=VALUE, strip quotes, skip comments)
+    _env_dict = {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    k, _, v = line.partition('=')
+                    key = k.strip()
+                    val = v.strip()
+                    if len(val) >= 2 and (val.startswith('"') and val.endswith('"') or val.startswith("'") and val.endswith("'")):
+                        val = val[1:-1]
+                    os.environ[key] = val
+                    _env_dict[key] = val
+    except Exception:
+        pass
+    return _env_dict
+
+def _substitute_env_in_value(data_value):
+    """Replace any .env placeholder keys in data_value with their values."""
+    if not data_value or not _env_dict:
+        return data_value
+    s = str(data_value)
+    # Replace longest keys first to avoid partial replacements (e.g. KEY vs KEY2)
+    for key in sorted(_env_dict.keys(), key=len, reverse=True):
+        val = _env_dict.get(key)
+        if val is None:
+            val = ''
+        s = s.replace(str(key), str(val))
+    return s
 
 def _resource_path(relative_path):
     """Get absolute path to resource, works for dev and PyInstaller."""
@@ -752,6 +817,9 @@ def process_action(args):
                                 # This ensures the code doesn't crash on Linux if regex fails
                                 pass
                         
+                        # Substitute sensitive placeholders from .env (e.g. OPENWEATHERMAP_API, EMAIL_ID, YOUR_PASSWORD)
+                        data_value = _substitute_env_in_value(data_value)
+                        
                         # Use word boundary replacement to avoid partial matches
                         # But exclude matches that are part of dot-notation paths (e.g., coord.lat should not replace 'lat')
                         # Match variable name only when it's not preceded by a dot and not followed by a dot
@@ -954,6 +1022,14 @@ def main():
     # Show startup banner
     print_header("FoXYiZ Test Framework")
     print_status("Loading configuration...", "INFO")
+    
+    # Load .env for sensitive placeholders used in y3Designs (e.g. OPENWEATHERMAP_API, EMAIL_ID)
+    env_path = _env_path()
+    if env_path:
+        load_env()
+        print_status(f"Loaded .env from {os.path.dirname(env_path)}", "INFO")
+    else:
+        load_env()
     
     # Load main config
     # Resolve default config if not provided

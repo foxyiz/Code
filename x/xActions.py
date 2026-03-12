@@ -12,6 +12,11 @@ import sqlite3
 import threading
 import webbrowser
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+try:
     import pyautogui
     PYAUTOGUI_AVAILABLE = True
 except ImportError:
