@@ -38,43 +38,58 @@ logging.getLogger('selenium').setLevel(logging.ERROR)
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('requests').setLevel(logging.ERROR)
 
-# User-friendly output functions
+# User-friendly output functions (ASCII-only for universal terminal compatibility)
 def print_header(title):
-    """Print a formatted header for sections."""
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
+    """Print a formatted header for sections using ASCII art."""
+    width = 60
+    print(f"\n  .{'=' * (width - 2)}.")
+    print(f"  | {title:<{width - 4}} |")
+    print(f"  '{'=' * (width - 2)}'")
 
 def print_progress(current, total, item_name="items"):
-    """Print progress information."""
+    """Print progress information with ASCII progress bar."""
     percentage = (current / total) * 100 if total > 0 else 0
     bar_length = 30
     filled_length = int(bar_length * current // total) if total > 0 else 0
-    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+    bar = '#' * filled_length + '-' * (bar_length - filled_length)
     print(f"\rProgress: |{bar}| {percentage:.1f}% ({current}/{total} {item_name})", end='', flush=True)
 
 def print_status(message, status="INFO"):
-    """Print status messages with formatting."""
+    """Print status messages with ASCII art indicators."""
     status_symbols = {
-        "INFO": "ℹ️",
-        "SUCCESS": "✅", 
-        "WARNING": "⚠️",
-        "ERROR": "❌",
-        "RUNNING": "🔄"
+        "INFO": "  [i]",
+        "SUCCESS": "  [+]",
+        "WARNING": "  [!]",
+        "ERROR": "  [x]",
+        "RUNNING": "  [...]"
     }
-    symbol = status_symbols.get(status, "•")
+    symbol = status_symbols.get(status, "  -")
     print(f"{symbol} {message}")
 
 def print_summary(stats):
-    """Print execution summary."""
+    """Print execution summary in an ASCII art box."""
     print_header("EXECUTION SUMMARY")
-    print(f"📊 Total Plans: {stats['total_plans']}")
-    print(f"✅ Passed: {stats['passed']}")
-    print(f"❌ Failed: {stats['failed']}")
-    print(f"⏱️  Total Time: {stats['total_time']:.2f} seconds")
-    print(f"📁 Results saved to: {stats['output_dir']}")
-    print(f"🌐 Dashboard: {stats['dashboard_path']}")
-    print(f"{'='*60}\n")
+    max_len = 70
+    out_dir = stats['output_dir']
+    dash_path = stats['dashboard_path']
+    if len(out_dir) > max_len:
+        out_dir = "..." + out_dir[-(max_len - 3):]
+    if len(dash_path) > max_len:
+        dash_path = "..." + dash_path[-(max_len - 3):]
+    width = 72
+    lines = [
+        f"Total Plans ....... {stats['total_plans']}",
+        f"Passed ............ {stats['passed']}",
+        f"Failed ............ {stats['failed']}",
+        f"Total Time ........ {stats['total_time']:.2f} seconds",
+        f"Results saved to .. {out_dir}",
+        f"Dashboard ......... {dash_path}",
+    ]
+    print("  +" + "-" * (width - 4) + "+")
+    for line in lines:
+        print("  | " + (line[: width - 6] + ".." if len(line) > width - 6 else line).ljust(width - 6) + " |")
+    print("  +" + "-" * (width - 4) + "+")
+    print()
 
 def cleanup_empty_directories(directory):
     """Remove empty directories recursively, but keep the root directory."""
@@ -962,13 +977,13 @@ def process_plan(args):
             
             # Show action progress
             if result['Result'] == 'Pass':
-                print_status(f"  ✓ {action_row['StepInfo']}", "SUCCESS")
+                print_status(f"  {action_row['StepInfo']}", "SUCCESS")
             elif result['Result'] == 'Fail':
-                print_status(f"  ✗ {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR")
+                print_status(f"  {action_row['StepInfo']} - {result.get('Output', 'Failed')}", "ERROR")
                 # If action marked Critical, stop executing remaining actions for this plan/design
                 is_critical = str(action_row.get('Critical', 'n')).strip().lower() in {'y', 'yes', 'true', '1'}
                 if is_critical:
-                    print_status(f"  → Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING")
+                    print_status(f"  -> Critical step failed. Skipping remaining actions for plan {plan_id} / design {design_id}.", "WARNING")
                     break
 
     # Show plan completion
