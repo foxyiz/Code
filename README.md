@@ -24,7 +24,7 @@ A **data-driven test automation framework** that runs test plans defined in CSV 
 ### Prerequisites
 
 - **Python 3.11** (or compatible 3.x)
-- **Chrome** (for UI tests; ChromeDriver is used via Selenium and should be on PATH or auto-managed)
+- **Chrome** (for UI tests; ChromeDriver is auto-downloaded to match your installed Chrome version via webdriver-manager)
 - Optional: Excel support needs `openpyxl` (see [Requirements](#requirements--dependencies))
 
 ### Install and Run
@@ -189,7 +189,7 @@ python fEngine.py --debug
 - If **tags** are set in `fStart.json`, only plans whose **Tags** match are run (special value **All** = no tag filter).
 - **DesignId**: each plan is run once per design id (e.g. D1;D2 → run twice, with variables from D1 then D2).
 - **Critical** steps: if a step with Critical=Y fails, the rest of that plan/design is skipped.
-- **ChromeDriver**: killed at startup to avoid leftovers; headless/cloud detection can enable headless automatically.
+- **ChromeDriver**: auto-resolved to match installed Chrome (webdriver-manager); killed at startup to avoid leftovers; headless/cloud detection can enable headless automatically.
 
 Results are written under **`z/<timestamp>_<SuiteName>/`**:
 - **`<SuiteName>_zResults.csv`** – full results (DesignId, PlanId, StepId, ActionType, ActionName, Input, Output, Expected, Result, TimeTaken, …).
@@ -244,7 +244,7 @@ Optional at runtime:
 - **schedule** – for xTimeSchedule (if used).
 - **pyautogui** – for some UI/accessibility use cases (import is optional in code).
 
-**Chrome** must be installed for UI tests; the framework uses Selenium with Chrome and does not ship a driver (relies on PATH or environment).
+**Chrome** must be installed for UI tests; the framework uses Selenium with Chrome and automatically downloads the matching ChromeDriver for your Chrome version (no PATH setup required).
 
 ---
 

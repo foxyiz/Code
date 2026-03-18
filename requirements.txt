@@ -1,6 +1,7 @@
 pandas
 requests
 selenium
+webdriver-manager
 pyinstaller
 openpyxl
 python-dotenv

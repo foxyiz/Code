@@ -59,12 +59,12 @@ jobs:
     - name: Build executable with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
-        pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "z/zDash_template.html;z" --collect-all selenium --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import selenium.webdriver --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
+        pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "z/zDash_template.html;z" --collect-all selenium --collect-all webdriver_manager --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import selenium.webdriver --hidden-import webdriver_manager.chrome --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
 
     - name: Build executable with PyInstaller (Unix)
       if: runner.os != 'Windows'
       run: |
-        pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "z/zDash_template.html:z" --collect-all selenium --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import selenium.webdriver --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
+        pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "z/zDash_template.html:z" --collect-all selenium --collect-all webdriver_manager --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import selenium.webdriver --hidden-import webdriver_manager.chrome --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
 
     - name: List dist directory (Debug)
       run: |

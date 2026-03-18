@@ -45,6 +45,12 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 import re
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+    WEBDRIVER_MANAGER_AVAILABLE = True
+except ImportError:
+    ChromeDriverManager = None
+    WEBDRIVER_MANAGER_AVAILABLE = False
 # import win32com.client  # Removed SAP dependency for IoT-only project
 
 # Import custom actions handler (optional - gracefully handle if not present)
@@ -357,8 +363,18 @@ class UIActionHandler(ActionHandler):
                 else:
                     opts = None
 
+                # Resolve ChromeDriver path: use provided path, else webdriver-manager (matches installed Chrome), else Selenium Manager
+                resolved_driver_path = driver_path
+                if not resolved_driver_path and WEBDRIVER_MANAGER_AVAILABLE and ChromeDriverManager:
+                    try:
+                        resolved_driver_path = ChromeDriverManager().install()
+                        logger.info("Using ChromeDriver from webdriver-manager (matches installed Chrome version)")
+                    except Exception as e:
+                        logger.debug("webdriver-manager could not resolve ChromeDriver: %s; falling back to Selenium Manager", e)
+                        resolved_driver_path = None
+
                 if ChromeService:
-                    service = ChromeService(executable_path=driver_path) if driver_path else ChromeService()
+                    service = ChromeService(executable_path=resolved_driver_path) if resolved_driver_path else ChromeService()
                     try:
                         # Suppress chromedriver logs if supported
                         service.log_path = os.devnull  # type: ignore[attr-defined]
@@ -367,8 +383,8 @@ class UIActionHandler(ActionHandler):
                     self._driver = webdriver.Chrome(service=service, options=opts)
                 else:
                     # Fallback older API
-                    if driver_path:
-                        self._driver = webdriver.Chrome(executable_path=driver_path)
+                    if resolved_driver_path:
+                        self._driver = webdriver.Chrome(executable_path=resolved_driver_path)
                     else:
                         self._driver = webdriver.Chrome()
             elif browser_type == "firefox":
