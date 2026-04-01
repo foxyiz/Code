@@ -7,6 +7,9 @@ import logging
 import sys
 import subprocess
 import platform
+import re
+import shutil
+import urllib.request
 from datetime import datetime
 import multiprocessing
 try:
@@ -134,6 +137,26 @@ def kill_chromedriver_processes():
                 pass
     except Exception:
         pass  # Don't fail if process killing fails
+
+def cleanup_ui_drivers():
+    """Best-effort cleanup of any shared/thread-local browser drivers."""
+    try:
+        if hasattr(xActions, 'UIActionHandler'):
+            if hasattr(xActions.UIActionHandler, '_shared_driver') and xActions.UIActionHandler._shared_driver:
+                try:
+                    xActions.UIActionHandler._shared_driver.quit()
+                except Exception:
+                    pass
+                xActions.UIActionHandler._shared_driver = None
+            if hasattr(xActions.UIActionHandler, '_thread_local'):
+                if hasattr(xActions.UIActionHandler._thread_local, 'driver') and xActions.UIActionHandler._thread_local.driver:
+                    try:
+                        xActions.UIActionHandler._thread_local.driver.quit()
+                    except Exception:
+                        pass
+                    xActions.UIActionHandler._thread_local.driver = None
+    except Exception:
+        pass
 
 # Global cache for action results
 action_cache = {}
@@ -983,273 +1006,329 @@ def process_plan(args):
 
     return results
 
-def main():
-    """Main function to execute the test framework."""
-    # Clear action cache to ensure fresh execution
-    global action_cache
-    action_cache.clear()
-    
-    # Kill any leftover chromedriver processes from previous executions
-    kill_chromedriver_processes()
-    
-    # Clean up any leftover browser drivers from previous executions
+def _normalize_locator_input(raw_input):
+    """Apply safe, deterministic cleanup to action locator input strings."""
+    value = str(raw_input) if raw_input is not None else ""
+    original = value
+    value = value.strip()
+
+    # Remove repeated outer quote layers: ""value"" -> value
+    for _ in range(10):
+        if len(value) >= 2 and ((value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
+            value = value[1:-1].strip()
+        else:
+            break
+
+    # Normalize CSS attribute selector quotes: [attr="x"] -> [attr='x']
+    while '""' in value:
+        value = value.replace('""', '"')
+    value = re.sub(r'\[([^=]+=)"([^"]+)"\]', r"[\1'\2']", value)
+
+    return value if value != original else original
+
+def _request_llm_heal_suggestions(failed_cases):
+    """Ask an LLM for targeted y2Actions fixes; returns [] on any failure."""
+    api_key = os.getenv("FOXYIZ_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key or not failed_cases:
+        return []
+
+    model = os.getenv("FOXYIZ_LLM_MODEL", "gpt-4o-mini")
+    endpoint = os.getenv("FOXYIZ_LLM_ENDPOINT", "https://api.openai.com/v1/chat/completions")
+    prompt = (
+        "You are improving UI/API automation action rows.\n"
+        "Given failed actions, suggest minimal updates only when likely useful.\n"
+        "Return STRICT JSON array with objects:\n"
+        "[{\"PlanId\":\"...\",\"StepId\":\"...\",\"new_input\":\"...\",\"new_action_name\":\"...\",\"reason\":\"...\"}]\n"
+        "Rules: keep existing semantics, avoid risky changes, and use empty string if no action-name change.\n\n"
+        f"Failed cases:\n{json.dumps(failed_cases, ensure_ascii=True)}"
+    )
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1
+    }
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        },
+        method="POST"
+    )
     try:
-        if hasattr(xActions, 'UIActionHandler'):
-            # Clean up shared driver
-            if hasattr(xActions.UIActionHandler, '_shared_driver') and xActions.UIActionHandler._shared_driver:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        content = body["choices"][0]["message"]["content"]
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.strip("`")
+            if content.startswith("json"):
+                content = content[4:].strip()
+        parsed = json.loads(content)
+        return parsed if isinstance(parsed, list) else []
+    except Exception as e:
+        logger.warning(f"LLM heal suggestions unavailable: {str(e)}")
+        return []
+
+def _apply_heal_updates_to_actions(ypad_config, failed_df):
+    """Update y2Actions input/action names using deterministic + optional LLM suggestions."""
+    if failed_df.empty:
+        return 0
+
+    failed_cases = []
+    for _, row in failed_df.iterrows():
+        failed_cases.append({
+            "PlanId": str(row.get("PlanId", "")),
+            "StepId": str(row.get("StepId", "")),
+            "ActionType": str(row.get("ActionType", "")),
+            "ActionName": str(row.get("ActionName", "")),
+            "Input": str(row.get("Input", "")),
+            "Output": str(row.get("Output", "")),
+            "Expected": str(row.get("Expected", ""))
+        })
+    suggestions = _request_llm_heal_suggestions(failed_cases)
+    suggestion_map = {}
+    for item in suggestions:
+        pid = str(item.get("PlanId", "")).strip()
+        sid = str(item.get("StepId", "")).strip()
+        if pid and sid:
+            suggestion_map[(pid, sid)] = item
+    failed_keys = {(str(row.get("PlanId", "")).strip(), str(row.get("StepId", "")).strip()) for _, row in failed_df.iterrows()}
+
+    changes = 0
+    for action_file in ypad_config.get('input_files', {}).get('yActions', []):
+        resolved = action_file if os.path.isabs(action_file) else _resource_path(action_file)
+        if not os.path.exists(resolved):
+            continue
+        try:
+            actions_df = pd.read_csv(resolved, encoding='utf-8-sig', dtype=str).fillna('')
+        except Exception:
+            continue
+
+        file_changed = False
+        for idx, row in actions_df.iterrows():
+            key = (str(row.get("PlanId", "")).strip(), str(row.get("StepId", "")).strip())
+            if key not in failed_keys:
+                continue
+
+            suggested = suggestion_map.get(key, {})
+            current_input = str(row.get("Input", ""))
+            healed_input = str(suggested.get("new_input", "")).strip() or _normalize_locator_input(current_input)
+            if healed_input and healed_input != current_input:
+                actions_df.at[idx, "Input"] = healed_input
+                file_changed = True
+                changes += 1
+
+            suggested_action = str(suggested.get("new_action_name", "")).strip()
+            current_action = str(row.get("ActionName", ""))
+            if suggested_action and suggested_action != current_action:
+                actions_df.at[idx, "ActionName"] = suggested_action
+                file_changed = True
+                changes += 1
+
+        if file_changed:
+            backup_path = resolved + ".bak"
+            if not os.path.exists(backup_path):
                 try:
-                    xActions.UIActionHandler._shared_driver.quit()
+                    shutil.copyfile(resolved, backup_path)
                 except Exception:
                     pass
-                xActions.UIActionHandler._shared_driver = None
-            
-            # Clean up thread-local driver if it exists
-            if hasattr(xActions.UIActionHandler, '_thread_local'):
-                if hasattr(xActions.UIActionHandler._thread_local, 'driver') and xActions.UIActionHandler._thread_local.driver:
-                    try:
-                        xActions.UIActionHandler._thread_local.driver.quit()
-                    except Exception:
-                        pass
-                    xActions.UIActionHandler._thread_local.driver = None
-    except Exception:
-        pass  # Don't fail if cleanup fails
-    
+            actions_df.to_csv(resolved, index=False, encoding='utf-8-sig')
+            print_status(f"Heal updates applied to y2Actions: {resolved}", "INFO")
+
+    return changes
+
+def main():
+    """Main function to execute the test framework."""
+    global action_cache
+    action_cache.clear()
+    kill_chromedriver_processes()
+    cleanup_ui_drivers()
+
     parser = argparse.ArgumentParser(description="FoXYiZ Test Framework")
     parser.add_argument('--config', required=False, default='fStart.json', help="Path to the main config JSON file")
     parser.add_argument('--debug', action='store_true', help="Enable verbose debug logging and error artifacts")
+    parser.add_argument('--heal', action='store_true', help="Run one heal cycle on failed cases and re-run once")
+    parser.add_argument('--loop', action='store_true', help="Run heal cycles until 100% success or 3 heal runs")
     args = parser.parse_args()
 
-    # Show startup banner
     print_header("FoXYiZ Test Framework")
     print_status("Loading configuration...", "INFO")
-    
-    # Load .env for sensitive placeholders used in y3Designs (e.g. OPENWEATHERMAP_API, EMAIL_ID)
+
     env_path = _env_path()
+    load_env()
     if env_path:
-        load_env()
         print_status(f"Loaded .env from {os.path.dirname(env_path)}", "INFO")
-    else:
-        load_env()
-    
-    # Load main config
-    # Resolve default config if not provided
+
     try:
         main_config = load_config(args.config)
     except FileNotFoundError:
         print_status(f"Main config not found: {args.config}", "ERROR")
         print_status("Ensure 'fStart.json' is present next to the executable or pass --config.", "ERROR")
         return 2
+
     configs = main_config.get("configs", [])
     timeout = main_config.get("timeout", 6)
     debug_mode = bool(args.debug or main_config.get("debug", False))
-    headless_mode = bool(main_config.get("headless", False))  # From fEngine2.py v2
-
-    # Set headless mode environment variable if configured (from fEngine2.py v2)
-    # Note: Even if headless is False, xActions will auto-detect cloud environments
-    # and enable headless mode automatically for cloud execution
+    headless_mode = bool(main_config.get("headless", False))
+    os.environ['FOXYIZ_HEADLESS'] = 'true' if headless_mode else 'false'
     if headless_mode:
-        os.environ['FOXYIZ_HEADLESS'] = 'true'
         print_status("Headless mode enabled", "INFO")
     else:
-        # Explicitly disable headless mode to ensure browsers open (for local execution)
-        # Cloud environments will be auto-detected and headless mode enabled automatically
-        os.environ['FOXYIZ_HEADLESS'] = 'false'
         print_status("Headless mode disabled - browsers will open (cloud auto-detection enabled)", "INFO")
 
-    # propagate debug mode into action layer
     try:
         if hasattr(xActions, 'set_debug_mode'):
             xActions.set_debug_mode(debug_mode)
     except Exception:
         pass
 
-    # Dynamically adjust thread count based on CPU cores, capped at 4
     max_threads = min(multiprocessing.cpu_count(), 4)
     thread_count = int(main_config.get("thread_count", max_threads))
     print_status(f"Using {thread_count} threads for parallel execution", "INFO")
 
     start_time = time.time()
-    
+    max_heal_runs = 3 if args.loop else (1 if args.heal else 0)
+
     for config_index, config_path in enumerate(configs, 1):
         print_header(f"Processing Test Suite {config_index}/{len(configs)}")
-        
         try:
             ypad_config = load_config(config_path)
         except FileNotFoundError:
             print_status(f"yPAD config not found: {config_path}", "ERROR")
             continue
-        ypad_name = os.path.splitext(os.path.basename(config_path))[0]
-        output_dir = os.path.join("z", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{ypad_name}")
-        os.makedirs(output_dir, exist_ok=True)
-        if debug_mode:
-            os.makedirs(os.path.join(output_dir, "_debug"), exist_ok=True)
-        
-        print_status(f"Test Suite: {ypad_name}", "INFO")
-        print_status(f"Output Directory: {output_dir}", "INFO")
 
-        # Load plans and filter by Run=Y (load all plan files and concatenate)
-        y1_plans_list = []
-        for plan_file in ypad_config['input_files']['yPlans']:
-            try:
-                df = load_csv(plan_file)
-                y1_plans_list.append(df)
-                print_status(f"Loaded plan file: {os.path.basename(plan_file)} ({len(df)} plans)", "INFO")
-            except Exception as e:
-                print_status(f"Failed to load plan file {plan_file}: {str(e)}", "ERROR")
-        if y1_plans_list:
+        ypad_name = os.path.splitext(os.path.basename(config_path))[0]
+        heal_run = 0
+        while True:
+            action_cache.clear()
+            kill_chromedriver_processes()
+            cleanup_ui_drivers()
+
+            output_dir = os.path.join("z", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{ypad_name}")
+            os.makedirs(output_dir, exist_ok=True)
+            if debug_mode:
+                os.makedirs(os.path.join(output_dir, "_debug"), exist_ok=True)
+
+            label = f"{ypad_name} (healed run {heal_run}/{max_heal_runs})" if heal_run > 0 else ypad_name
+            print_status(f"Test Suite: {label}", "INFO")
+            print_status(f"Output Directory: {output_dir}", "INFO")
+
+            y1_plans_list = []
+            for plan_file in ypad_config['input_files']['yPlans']:
+                try:
+                    df = load_csv(plan_file)
+                    y1_plans_list.append(df)
+                    print_status(f"Loaded plan file: {os.path.basename(plan_file)} ({len(df)} plans)", "INFO")
+                except Exception as e:
+                    print_status(f"Failed to load plan file {plan_file}: {str(e)}", "ERROR")
+            if not y1_plans_list:
+                print_status("No plan files could be loaded", "ERROR")
+                break
+
             y1_plans = pd.concat(y1_plans_list, ignore_index=True)
             print_status(f"Total plans loaded: {len(y1_plans)} from {len(y1_plans_list)} file(s)", "INFO")
-        else:
-            print_status("No plan files could be loaded", "ERROR")
-            continue
-        
-        # Check if 'Run' column exists (case-insensitive check)
-        # Column names should already be cleaned by load_csv, but check anyway
-        run_column = None
-        for col in y1_plans.columns:
-            cleaned_col = col.strip().strip('"').strip("'")
-            if cleaned_col.lower() == 'run':
-                run_column = col  # Use original column name from DataFrame
+
+            run_column = None
+            for col in y1_plans.columns:
+                if col.strip().strip('"').strip("'").lower() == 'run':
+                    run_column = col
+                    break
+            if run_column is None:
+                print_status("Error: 'Run' column not found in y1Plans.csv", "ERROR")
                 break
-        
-        if run_column is None:
-            available_columns = ', '.join([f"'{col}'" for col in y1_plans.columns.tolist()])
-            print_status(f"Error: 'Run' column not found in y1Plans.csv", "ERROR")
-            print_status(f"Available columns: {available_columns}", "ERROR")
-            print_status(f"CSV file: {ypad_config['input_files']['yPlans'][0]}", "ERROR")
-            print_status(f"Number of columns: {len(y1_plans.columns)}", "ERROR")
-            continue
-        
-        # Filter plans where Run='Y' (use actual column name from DataFrame)
-        plans_to_run = y1_plans[y1_plans[run_column] == 'Y']
-        
-        # Filter by tags if specified in main_config
-        # If "tags" field doesn't exist in JSON, treat it as empty (run all plans)
-        tags_config = main_config.get("tags", [])
-        # Handle both list and single string/None cases
-        if tags_config is None:
-            tags_config = []
-        elif isinstance(tags_config, str):
-            tags_config = [tags_config] if tags_config.strip() else []
-        elif not isinstance(tags_config, list):
-            tags_config = []
-        
-        # Check if Tags column exists
-        tags_column = None
-        for col in y1_plans.columns:
-            cleaned_col = col.strip().strip('"').strip("'")
-            if cleaned_col.lower() == 'tags':
-                tags_column = col  # Use original column name from DataFrame
+
+            plans_to_run = y1_plans[y1_plans[run_column] == 'Y']
+            tags_config = main_config.get("tags", [])
+            if tags_config is None:
+                tags_config = []
+            elif isinstance(tags_config, str):
+                tags_config = [tags_config] if tags_config.strip() else []
+            elif not isinstance(tags_config, list):
+                tags_config = []
+
+            tags_column = None
+            for col in y1_plans.columns:
+                if col.strip().strip('"').strip("'").lower() == 'tags':
+                    tags_column = col
+                    break
+
+            if tags_column and tags_config:
+                tags_lower = [str(tag).strip().lower() for tag in tags_config if tag]
+                if 'all' not in tags_lower:
+                    def tag_matches(row):
+                        plan_tag = str(row[tags_column]).strip().lower() if pd.notna(row[tags_column]) else ""
+                        return any(plan_tag == tag_lower for tag_lower in tags_lower)
+                    plans_to_run = plans_to_run[plans_to_run.apply(tag_matches, axis=1)]
+                    if tags_lower:
+                        print_status(f"Tag filter: Running plans with tags: {', '.join(tags_config)}", "INFO")
+                else:
+                    print_status("Tag filter: 'All' specified - running all plans", "INFO")
+            elif tags_config and not tags_column:
+                print_status("Warning: Tags specified but 'Tags' column not found - running all plans", "WARNING")
+
+            print_status(f"Found {len(plans_to_run)} plans to execute", "INFO")
+            if len(plans_to_run) == 0:
+                print_status("No plans marked for execution (Run=Y)", "WARNING")
                 break
-        
-        # Apply tag filtering if tags are specified and Tags column exists
-        if tags_column and tags_config:
-            # Check if "All" is in tags (case-insensitive)
-            tags_lower = [str(tag).strip().lower() for tag in tags_config if tag]
-            if 'all' in tags_lower:
-                # Run all plans (no tag filtering)
-                print_status("Tag filter: 'All' specified - running all plans", "INFO")
-            else:
-                # Filter plans by matching tags (case-insensitive)
-                def tag_matches(row):
-                    plan_tag = str(row[tags_column]).strip().lower() if pd.notna(row[tags_column]) else ""
-                    return any(plan_tag == tag_lower for tag_lower in tags_lower)
-                
-                plans_to_run = plans_to_run[plans_to_run.apply(tag_matches, axis=1)]
-                if len(tags_lower) > 0:
-                    print_status(f"Tag filter: Running plans with tags: {', '.join(tags_config)}", "INFO")
-        elif tags_config and not tags_column:
-            print_status("Warning: Tags specified but 'Tags' column not found in y1Plans.csv - running all plans", "WARNING")
-        
-        print_status(f"Found {len(plans_to_run)} plans to execute", "INFO")
-        
-        if len(plans_to_run) == 0:
-            print_status("No plans marked for execution (Run=Y)", "WARNING")
-            continue
 
-        # Process plans sequentially for better user experience
-        all_results = []
-        for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
-            plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, len(plans_to_run))
-            results = process_plan(plan_args)
-            all_results.extend(results)
-            
-            # Show progress
-            print_progress(plan_index, len(plans_to_run), "plans")
+            all_results = []
+            for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
+                plan_args = (plan_row, ypad_config, output_dir, timeout, plan_index, len(plans_to_run))
+                results = process_plan(plan_args)
+                all_results.extend(results)
+                print_progress(plan_index, len(plans_to_run), "plans")
+            print()
 
-        print()  # New line after progress bar
+            print_status("Generating results and dashboard...", "INFO")
+            df = pd.DataFrame(all_results)
+            df.to_csv(os.path.join(output_dir, f"{ypad_name}_zResults.csv"), index=False)
+            generate_dashboard(df, output_dir, ypad_name)
 
-        # Generate results and dashboard
-        print_status("Generating results and dashboard...", "INFO")
-        df = pd.DataFrame(all_results)
-        df.to_csv(os.path.join(output_dir, f"{ypad_name}_zResults.csv"), index=False)
-        generate_dashboard(df, output_dir, ypad_name)
-        
-        # Clean up empty directories
-        try:
-            removed = cleanup_empty_directories(output_dir)
-            if removed > 0:
-                print_status(f"Cleaned up {removed} empty directory(ies)", "INFO")
-        except Exception as e:
-            # Don't fail if cleanup fails
-            logger.debug(f"Failed to clean up empty directories: {str(e)}")
+            try:
+                removed = cleanup_empty_directories(output_dir)
+                if removed > 0:
+                    print_status(f"Cleaned up {removed} empty directory(ies)", "INFO")
+            except Exception as e:
+                logger.debug(f"Failed to clean up empty directories: {str(e)}")
 
-        # Optional: error summary presence
-        try:
-            err_csv = os.path.join(output_dir, "_errors.csv")
-            if os.path.exists(err_csv):
-                print_status(f"Error summary saved: {err_csv}", "WARNING")
-        except Exception:
-            pass
-        
-        # Calculate and show summary
-        total_plans = len(plans_to_run)
-        
-        # Calculate plan-level results (a plan passes only if ALL its actions across ALL designs pass)
-        # Use fEngine2.py v2 approach with reset_index for better DataFrame handling
-        plan_results = df.groupby('PlanId').agg({
-            'Result': lambda x: 'Pass' if (x == 'Pass').all() else 'Fail'
-        }).reset_index()
-        
-        passed_plans = len(plan_results[plan_results['Result'] == 'Pass'])
-        failed_plans = len(plan_results[plan_results['Result'] == 'Fail'])
-        total_time = time.time() - start_time
-        
-        dashboard_path = os.path.join(output_dir, f"{ypad_name}_zDash.html")
-        
-        summary_stats = {
-            'total_plans': total_plans,
-            'passed': passed_plans,
-            'failed': failed_plans,
-            'total_time': total_time,
-            'output_dir': output_dir,
-            'dashboard_path': dashboard_path
-        }
-        
-        print_summary(summary_stats)
-        print_status(f"Test suite '{ypad_name}' completed successfully!", "SUCCESS")
-        
-        # Clean up browser drivers after each test suite to prevent issues on next execution
-        try:
-            if hasattr(xActions, 'UIActionHandler'):
-                # Clean up shared driver
-                if hasattr(xActions.UIActionHandler, '_shared_driver') and xActions.UIActionHandler._shared_driver:
-                    try:
-                        xActions.UIActionHandler._shared_driver.quit()
-                    except Exception:
-                        pass
-                    xActions.UIActionHandler._shared_driver = None
-                
-                # Clean up thread-local driver if it exists
-                if hasattr(xActions.UIActionHandler, '_thread_local'):
-                    if hasattr(xActions.UIActionHandler._thread_local, 'driver') and xActions.UIActionHandler._thread_local.driver:
-                        try:
-                            xActions.UIActionHandler._thread_local.driver.quit()
-                        except Exception:
-                            pass
-                        xActions.UIActionHandler._thread_local.driver = None
-        except Exception:
-            pass  # Don't fail if cleanup fails
+            try:
+                err_csv = os.path.join(output_dir, "_errors.csv")
+                if os.path.exists(err_csv):
+                    print_status(f"Error summary saved: {err_csv}", "WARNING")
+            except Exception:
+                pass
+
+            plan_results = df.groupby('PlanId').agg({
+                'Result': lambda x: 'Pass' if (x == 'Pass').all() else 'Fail'
+            }).reset_index()
+            passed_plans = len(plan_results[plan_results['Result'] == 'Pass'])
+            failed_plans = len(plan_results[plan_results['Result'] == 'Fail'])
+            summary_stats = {
+                'total_plans': len(plans_to_run),
+                'passed': passed_plans,
+                'failed': failed_plans,
+                'total_time': time.time() - start_time,
+                'output_dir': output_dir,
+                'dashboard_path': os.path.join(output_dir, f"{ypad_name}_zDash.html")
+            }
+            print_summary(summary_stats)
+            print_status(f"Test suite '{ypad_name}' completed successfully!", "SUCCESS")
+
+            if failed_plans == 0 or max_heal_runs == 0 or heal_run >= max_heal_runs:
+                break
+
+            failed_actions_df = df[df['Result'] == 'Fail'].copy()
+            print_status(f"Heal analysis found {len(failed_actions_df)} failed action(s)", "WARNING")
+            updates = _apply_heal_updates_to_actions(ypad_config, failed_actions_df)
+            if updates <= 0:
+                print_status("No heal updates could be applied to y2Actions. Stopping heal loop.", "WARNING")
+                break
+            heal_run += 1
+            print_status(f"Applied {updates} y2Actions update(s). Re-running suite...", "INFO")
+
+        cleanup_ui_drivers()
 
 if __name__ == "__main__":
     # Multiprocessing support for Windows and PyInstaller

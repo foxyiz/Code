@@ -506,51 +506,77 @@ class UIActionHandler(ActionHandler):
         if not self._driver:
             raise WebDriverException("Driver not initialized")
         try:
-            element = self.find_element(locator, clickable=True, extra_wait_seconds=2)
-            
-            # Scroll element into view first (important for headless mode)
-            try:
-                self._driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-                # Longer pause in headless/cloud mode for better reliability
-                pause_time = 0.5 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.2
-                time.sleep(pause_time)
-            except Exception:
-                # Fallback: use Selenium's scroll method
+            click_delay = 1.0 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.5
+            locator_lower = locator.lower()
+            is_contact_us_click = ("contact" in locator_lower and "us" in locator_lower) or "/footer/" in locator_lower
+
+            for attempt in range(2):
+                element = self.find_element(locator, clickable=True, extra_wait_seconds=2)
+
+                # Scroll element into view first (important for headless mode)
                 try:
-                    self._driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                    self._driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
                     pause_time = 0.5 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.2
                     time.sleep(pause_time)
                 except Exception:
-                    pass  # Continue even if scroll fails
-            
-            # Try multiple click strategies for headless compatibility
-            # Strategy 1: Use ActionChains (more reliable in headless mode)
-            try:
-                ActionChains(self._driver).move_to_element(element).click().perform()
-                logger.debug("Click successful using ActionChains")
-            except Exception as e1:
-                logger.debug(f"ActionChains click failed: {str(e1)}")
-                
-                # Strategy 2: Try JavaScript click (works when element is covered or not directly clickable)
-                try:
-                    self._driver.execute_script("arguments[0].click();", element)
-                    logger.debug("Click successful using JavaScript")
-                except Exception as e2:
-                    logger.debug(f"JavaScript click failed: {str(e2)}")
-                    
-                    # Strategy 3: Fallback to direct click
                     try:
-                        element.click()
-                        logger.debug("Click successful using direct click")
-                    except Exception as e3:
-                        raise Exception(f"All click strategies failed. ActionChains: {str(e1)}, JavaScript: {str(e2)}, Direct: {str(e3)}")
-            
-            # Add delay after click to ensure action is fully registered and processed
-            # Longer delay in headless/cloud mode for better reliability
-            click_delay = 1.0 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.5
-            time.sleep(click_delay)
-            logger.info("Click successful")
-            return "Clicked element"
+                        self._driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                        pause_time = 0.5 if os.environ.get('FOXYIZ_HEADLESS', 'false').lower() in ('true', '1', 'yes') else 0.2
+                        time.sleep(pause_time)
+                    except Exception:
+                        pass
+
+                # Try multiple click strategies for better reliability on dynamic UIs
+                last_click_error = None
+                try:
+                    ActionChains(self._driver).move_to_element(element).click().perform()
+                    logger.debug("Click successful using ActionChains")
+                except Exception as e1:
+                    last_click_error = e1
+                    logger.debug(f"ActionChains click failed: {str(e1)}")
+                    try:
+                        self._driver.execute_script("arguments[0].click();", element)
+                        logger.debug("Click successful using JavaScript")
+                    except Exception as e2:
+                        last_click_error = e2
+                        logger.debug(f"JavaScript click failed: {str(e2)}")
+                        try:
+                            element.click()
+                            logger.debug("Click successful using direct click")
+                        except Exception as e3:
+                            last_click_error = e3
+                            logger.debug(f"Direct click failed: {str(e3)}")
+                            try:
+                                self._driver.execute_script(
+                                    "arguments[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));",
+                                    element
+                                )
+                                logger.debug("Click successful using dispatchEvent")
+                            except Exception as e4:
+                                raise Exception(
+                                    f"All click strategies failed. ActionChains: {str(e1)}, JavaScript: {str(e2)}, Direct: {str(e3)}, Dispatch: {str(e4)}"
+                                ) from e4
+
+                time.sleep(click_delay)
+
+                # For contact-us flows, verify modal opened; otherwise retry once.
+                if is_contact_us_click:
+                    modal_locator = (By.XPATH, "//h2[normalize-space(.)='Get in Touch']|//label[normalize-space(.)='Name *']")
+                    try:
+                        WebDriverWait(self._driver, 3).until(EC.presence_of_element_located(modal_locator))
+                        logger.info("Click successful and contact modal is present")
+                        return "Clicked element"
+                    except Exception:
+                        if attempt == 0:
+                            logger.warning("Click executed but contact modal not found; retrying click once")
+                            time.sleep(0.5)
+                            continue
+                        if last_click_error:
+                            raise Exception(f"Contact modal did not appear after click: {str(last_click_error)}")
+                        raise Exception("Contact modal did not appear after click")
+
+                logger.info("Click successful")
+                return "Clicked element"
         except Exception as e:
             msg = f"xClick failed for locator '{locator}': {str(e)}"
             logger.error(_sanitize_error_message(msg))
