@@ -84,7 +84,7 @@ Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mi
 ```
 
 - **`configs`**: List of test-suite JSON files to run (each points to a set of y1Plans, y2Actions, y3Designs).
-- **`thread_count`**: Max threads (capped by engine; plans run sequentially per suite).
+- **`thread_count`**: Max parallel YPAD suites when multiple entries are in `configs` (capped by `min(thread_count, number of configs)`). With `thread_count` 1, or a single config, suites run one after another. Plans within a suite still run sequentially. CLI output for each suite is printed in `configs` order after that suite finishes (buffered so parallel runs do not interleave).
 - **`timeout`**: Default action timeout (seconds).
 - **`headless`**: If true, browser runs headless (overridable by env; cloud detection can force headless).
 - **`debug`**: If true, enables debug artifacts (screenshots, page source, error files in `_debug`).

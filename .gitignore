@@ -2,14 +2,14 @@
 venv/
 
 .env
-
+y/
 # Build artifacts
 build/
 dist/
-
+z/
 # Others
 _others/
-
+/__pycache__/
 # Git directory
 .git/
 

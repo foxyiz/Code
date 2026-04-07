@@ -9,6 +9,8 @@ import shutil
 import smtplib
 import imaplib
 import sqlite3
+import socket
+import tempfile
 import threading
 import webbrowser
 try:
@@ -96,6 +98,17 @@ def set_debug_mode(enabled: bool):
     global _DEBUG_MODE
     _DEBUG_MODE = bool(enabled)
     logger.setLevel(logging.DEBUG if _DEBUG_MODE else logging.INFO)
+
+
+def _chrome_remote_debug_port():
+    """Free TCP port for --remote-debugging-port (parallel Chrome processes cannot share one port)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
 
 def _detect_selector(locator: str):
     """Return (By, value) auto-detecting CSS vs XPath. Supports 'css=' and 'xpath=' prefixes.
@@ -216,6 +229,7 @@ class ActionHandler:
 class UIActionHandler(ActionHandler):
     """Handles UI-related actions using Selenium."""
     _shared_driver = None
+    _chrome_user_data_dir = None
 
     def __init__(self, timeout=6):
         super().__init__(timeout)
@@ -353,13 +367,13 @@ class UIActionHandler(ActionHandler):
                     opts.add_argument("--disable-blink-features=AutomationControlled")
                     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
                     opts.add_experimental_option('useAutomationExtension', False)
-                    # Additional options for better cloud stability (only if not already set)
-                    # Note: Remote debugging port may conflict in some environments, so we make it optional
-                    try:
-                        opts.add_argument("--remote-debugging-port=9222")
-                        opts.add_argument("--remote-allow-origins=*")
-                    except Exception:
-                        pass  # Skip if already set or not supported
+                    # Unique profile + port: default profile SingletonLock and fixed port 9222 block parallel Chrome.
+                    _chrome_profile = tempfile.mkdtemp(prefix='foxyiz_chrome_')
+                    UIActionHandler._chrome_user_data_dir = _chrome_profile
+                    opts.add_argument(f'--user-data-dir={_chrome_profile}')
+                    _dbg_port = _chrome_remote_debug_port()
+                    opts.add_argument(f'--remote-debugging-port={_dbg_port}')
+                    opts.add_argument("--remote-allow-origins=*")
                 else:
                     opts = None
 
@@ -608,6 +622,12 @@ class UIActionHandler(ActionHandler):
                 raise
             UIActionHandler._shared_driver = None
             self._driver = None
+            if UIActionHandler._chrome_user_data_dir:
+                try:
+                    shutil.rmtree(UIActionHandler._chrome_user_data_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                UIActionHandler._chrome_user_data_dir = None
             return "Browser closed"
         return "No browser to close"
 
