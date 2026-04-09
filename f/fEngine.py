@@ -12,6 +12,9 @@ from datetime import datetime
 import multiprocessing
 import io
 from concurrent.futures import ProcessPoolExecutor
+
+# Root directory for development mode when engine lives under f/
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 try:
     from dotenv import load_dotenv, dotenv_values
 except ImportError:
@@ -27,7 +30,7 @@ except ImportError:
     except Exception:
         pass
     if not x_dir or not os.path.isdir(x_dir):
-        x_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'x'))
+        x_dir = os.path.abspath(os.path.join(PROJECT_ROOT, 'x'))
     if x_dir not in sys.path:
         sys.path.insert(0, x_dir)
     import xActions as xActions  # type: ignore[import-not-found]
@@ -155,7 +158,7 @@ def _env_path():
     if getattr(sys, 'frozen', False):
         base = os.path.dirname(sys.executable)
     else:
-        base = os.path.dirname(os.path.abspath(__file__))
+        base = PROJECT_ROOT
     for d in (base, os.getcwd()):
         p = os.path.join(d, '.env')
         if os.path.isfile(p):
@@ -240,7 +243,7 @@ def _resource_path(relative_path):
         return os.path.abspath(os.path.join(exe_dir, relative_path))
     else:
         # Development mode: use script directory
-        base_path = os.path.abspath(os.path.dirname(__file__))
+        base_path = PROJECT_ROOT
         return os.path.abspath(os.path.join(base_path, relative_path))
 
 def load_config(config_path):
@@ -1287,7 +1290,7 @@ def main():
         pass  # Don't fail if cleanup fails
     
     parser = argparse.ArgumentParser(description="FoXYiZ Test Framework")
-    parser.add_argument('--config', required=False, default='fStart.json', help="Path to the main config JSON file")
+    parser.add_argument('--config', required=False, default='f/fStart.json', help="Path to the main config JSON file")
     parser.add_argument('--debug', action='store_true', help="Enable verbose debug logging and error artifacts")
     args = parser.parse_args()
 
@@ -1309,7 +1312,7 @@ def main():
         main_config = load_config(args.config)
     except FileNotFoundError:
         print_status(f"Main config not found: {args.config}", "ERROR")
-        print_status("Ensure 'fStart.json' is present next to the executable or pass --config.", "ERROR")
+        print_status("Ensure 'f/fStart.json' is present (or pass --config).", "ERROR")
         return 2
     configs = main_config.get("configs", [])
     timeout = main_config.get("timeout", 6)

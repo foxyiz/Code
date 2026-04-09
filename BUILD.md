@@ -87,7 +87,7 @@ To build locally:
 pip install -r requirements.txt
 
 # Build executable (Unix: macOS/Linux)
-pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "y:y" --add-data "z/zDash_template.html:z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "y:y" --add-data "z/zDash_template.html:z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz f/fEngine.py
 
 # Find executable in dist/ directory
 ```
@@ -95,7 +95,7 @@ pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "y:y" --add-data "
 Note: On Unix-based systems (macOS/Linux), use `:` as path separator. On Windows, use `;`:
 ```bash
 # Windows
-pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz fEngine.py
+pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz f/fEngine.py
 ```
 
 ## Troubleshooting
@@ -104,7 +104,7 @@ If builds fail:
 1. Check the **Actions** tab for error logs
 2. Ensure all dependencies are in `requirements.txt`
 3. Verify the `x/` and `y/` directories exist in your repository
-4. Check that `fEngine.py` is in the root directory
+4. Check that `f/fEngine.py` exists in the repository
 
 ## Workflow Status
 

@@ -33,14 +33,14 @@ A **data-driven test automation framework** that runs test plans defined in CSV 
 # Clone or open the project, then:
 pip install -r requirements.txt
 
-# Run with default config (fStart.json → uses y/Mix.json by default)
-python fEngine.py
+# Run with default config (f/fStart.json → uses y/Mix.json by default)
+python f/fEngine.py
 
 # Run a specific config
-python fEngine.py --config y/FoXYiZ.json
+python f/fEngine.py --config y/YPAD.json
 
 # Enable debug (screenshots, page source, error artifacts in _debug folder)
-python fEngine.py --debug
+python f/fEngine.py --debug
 ```
 
 Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mix/`), including CSV results and an HTML dashboard.
@@ -51,8 +51,8 @@ Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mi
 
 | Path | Purpose |
 |------|--------|
-| **`fEngine.py`** | Main entry: loads config, runs plans/actions, resolves variables, generates dashboard. |
-| **`fStart.json`** | Global config: list of test-suite configs, thread_count, timeout, headless, debug. |
+| **`f/fEngine.py`** | Main entry: loads config, runs plans/actions, resolves variables, generates dashboard. |
+| **`f/fStart.json`** | Global config: list of test-suite configs, thread_count, timeout, headless, debug. |
 | **`requirements.txt`** | Python dependencies (pandas, requests, selenium, pyinstaller, openpyxl). |
 | **`x/`** | **Actions & capabilities** (engine extension point). |
 | **`x/xActions.py`** | All action handlers: UI (Selenium), Math, API, JSON, AI, File, Email, DB, Logic, Cloud, IoT, Time, Phone, and `runAction()` dispatcher. |
@@ -71,7 +71,7 @@ Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mi
 
 ## Configuration
 
-### Main config: `fStart.json`
+### Main config: `f/fStart.json`
 
 ```json
 {
@@ -89,7 +89,7 @@ Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mi
 - **`headless`**: If true, browser runs headless (overridable by env; cloud detection can force headless).
 - **`debug`**: If true, enables debug artifacts (screenshots, page source, error files in `_debug`).
 
-Optional **`tags`** in `fStart.json`: run only plans whose `Tags` column matches (e.g. `["UI"]` or `["All"]`).
+Optional **`tags`** in `f/fStart.json`: run only plans whose `Tags` column matches (e.g. `["UI"]` or `["All"]`).
 
 ### Suite config: e.g. `y/Mix.json`
 
@@ -117,7 +117,7 @@ You can list multiple files per key (e.g. multiple CSVs); they are concatenated.
 | PlanName  | Human-readable name. |
 | DesignId  | One or more design ids separated by `;` (e.g. D1 or D1;D2). Variables from y3Designs are picked by this. |
 | Run       | Y = run this plan, N = skip. |
-| Tags      | Optional; used with `tags` in fStart.json to filter plans. |
+| Tags      | Optional; used with `tags` in f/fStart.json to filter plans. |
 | Output    | Optional description. |
 
 ### y2Actions.csv
@@ -175,18 +175,18 @@ Actions are implemented in **`x/xActions.py`** and documented in **`x/xCapa.csv`
 ## Running Tests
 
 ```bash
-# Default: fStart.json → configs listed there (e.g. y/Mix.json)
-python fEngine.py
+# Default: f/fStart.json → configs listed there (e.g. y/Mix.json)
+python f/fEngine.py
 
 # Custom main config
-python fEngine.py --config path/to/start.json
+python f/fEngine.py --config path/to/start.json
 
 # Debug mode: extra artifacts (screenshots, page source) in results_dir/_debug
-python fEngine.py --debug
+python f/fEngine.py --debug
 ```
 
 - Only plans with **Run = Y** are executed.
-- If **tags** are set in `fStart.json`, only plans whose **Tags** match are run (special value **All** = no tag filter).
+- If **tags** are set in `f/fStart.json`, only plans whose **Tags** match are run (special value **All** = no tag filter).
 - **DesignId**: each plan is run once per design id (e.g. D1;D2 → run twice, with variables from D1 then D2).
 - **Critical** steps: if a step with Critical=Y fails, the rest of that plan/design is skipped.
 - **ChromeDriver**: auto-resolved to match installed Chrome (webdriver-manager); killed at startup to avoid leftovers; headless/cloud detection can enable headless automatically.
@@ -225,7 +225,7 @@ The framework loads **xCustom** only if the file exists; otherwise **xCustom** a
 - **Local**: See **BUILD.md** for PyInstaller one-file command (with `--add-data` for `x/`, `z/zDash_template.html`, etc.). Use `:` on Unix and `;` on Windows for path separators in `--add-data`.
 - **CI**: **`.github/workflows/build-executables.yml`** runs on push/PR to `main` and on tags `v*`. It builds Windows/macOS/Linux executables and uploads artifacts; if the run is triggered by a tag (e.g. `v1.0.0`), it creates a GitHub Release and attaches the executables.
 
-Place **`fStart.json`** and the **`y/`** folder (or the subset you need) next to the built executable so it can find configs and CSV/JSON data.
+Place **`f/fStart.json`** and the **`y/`** folder (or the subset you need) next to the built executable so it can find configs and CSV/JSON data.
 
 ---
 
@@ -251,9 +251,9 @@ Optional at runtime:
 ## Summary for New Users
 
 1. **Install**: `pip install -r requirements.txt`
-2. **Configure**: Edit **fStart.json** (and optionally **tags**); ensure at least one suite JSON under **y/** points to valid **y1Plans**, **y2Actions**, **y3Designs**.
+2. **Configure**: Edit **f/fStart.json** (and optionally **tags**); ensure at least one suite JSON under **y/** points to valid **y1Plans**, **y2Actions**, **y3Designs**.
 3. **Data**: Set **Run = Y** for plans to run; use **y3Designs** to define variables (DataName) per **DesignId** and reference them in **Input**/**Expected** in **y2Actions**.
-4. **Run**: `python fEngine.py` (or `--config` / `--debug` as needed).
+4. **Run**: `python f/fEngine.py` (or `--config` / `--debug` as needed).
 5. **Results**: Open **`z/<timestamp>_<SuiteName>/<SuiteName>_zDash.html`** and **`*_zResults.csv`**.
 6. **Custom steps**: Add methods in **x/xCustom.py** and call them with **ActionType = xCustom** in **y2Actions.csv**.
 
