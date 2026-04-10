@@ -8,6 +8,7 @@ A **data-driven test automation framework** that runs test plans defined in CSV 
 
 - [Quick Start](#quick-start)
 - [Project Structure](#project-structure)
+- [CLI flags and LLM workflows](#cli-flags-and-llm-workflows)
 - [Configuration](#configuration)
 - [Test Data (Plans, Actions, Designs)](#test-data-plans-actions-designs)
 - [Action Types & Capabilities](#action-types--capabilities)
@@ -33,15 +34,17 @@ A **data-driven test automation framework** that runs test plans defined in CSV 
 # Clone or open the project, then:
 pip install -r requirements.txt
 
-# Run with default config (f/fStart.json → uses y/Mix.json by default)
+# Run with default config (f/fStart.json → runs every suite listed in "configs")
 python f/fEngine.py
 
-# Run a specific config
-python f/fEngine.py --config y/YPAD.json
+# Run a specific main config
+python f/fEngine.py --config path/to/fStart.json
 
 # Enable debug (screenshots, page source, error artifacts in _debug folder)
 python f/fEngine.py --debug
 ```
+
+LLM-assisted flows (`--build`, `--analyze`, `--heal`, `--loop`) need **`OPENAI_API_KEY`** in a project-root **`.env`** file. See [CLI flags and LLM workflows](#cli-flags-and-llm-workflows).
 
 Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mix/`), including CSV results and an HTML dashboard.
 
@@ -51,21 +54,47 @@ Results appear under **`z/`** in timestamped folders (e.g. `z/20250603_103556_Mi
 
 | Path | Purpose |
 |------|--------|
-| **`f/fEngine.py`** | Main entry: loads config, runs plans/actions, resolves variables, generates dashboard. |
-| **`f/fStart.json`** | Global config: list of test-suite configs, thread_count, timeout, headless, debug. |
-| **`requirements.txt`** | Python dependencies (pandas, requests, selenium, pyinstaller, openpyxl). |
+| **`f/fEngine.py`** | Main entry: loads config, runs plans/actions, resolves variables, generates dashboard; implements `--build`, `--analyze`, `--heal`, `--loop`. |
+| **`f/fStart.json`** | Global config: list of test-suite configs, thread_count, timeout, headless, debug, optional tags. |
+| **`BUILD.md`** | Requirements for **`--build`**: YAML front matter (`ypad_name`) plus prose; drives OpenAI-generated YPAD CSVs. |
+| **`.env`** | Optional secrets for local runs (e.g. **`OPENAI_API_KEY`** for LLM features). Not committed. |
+| **`requirements.txt`** | Python dependencies (pandas, requests, selenium, pyinstaller, openpyxl, openai, etc.). |
 | **`x/`** | **Actions & capabilities** (engine extension point). |
 | **`x/xActions.py`** | All action handlers: UI (Selenium), Math, API, JSON, AI, File, Email, DB, Logic, Cloud, IoT, Time, Phone, and `runAction()` dispatcher. |
 | **`x/xCapa.csv`** | Catalog of supported actions (Module, Action, Doc, Input, Output). |
 | **`x/xCustom.py`** | User-defined actions (inherit `ActionHandler`, add methods with `x` prefix). |
-| **`y/`** | **Test suites**. Each suite has a JSON + folder (e.g. `y/Mix.json` + `y/Mix/`). |
-| **`y/<Suite>.json`** | Points to CSV paths for `yPlans`, `yActions`, `yDesigns` (e.g. `y/Mix/y1Plans.csv`). |
+| **`y/`** | **Test suites**. Each suite is a **pair**: `y/<SuiteName>.json` beside a folder `y/<SuiteName>/`. |
+| **`y/<Suite>.json`** | Suite config: `input_files` → `yPlans`, `yActions`, `yDesigns` (paths to CSVs under `y/<Suite>/` or elsewhere). |
 | **`y/<Suite>/y1Plans.csv`** | Test plans: PlanId, PlanName, DesignId, Run, Tags, Output. |
 | **`y/<Suite>/y2Actions.csv`** | Steps per plan: PlanId, StepId, StepInfo, ActionType, ActionName, Input, Output, Expected, Critical. |
 | **`y/<Suite>/y3Designs.csv`** | Variable values per DesignId (Type, DataName, D1, D2, …). |
-| **`z/`** | **Outputs**: run folders, results CSV, dashboard HTML, optional _errors.csv, zLog.txt. |
+| **`y/Mix/`** | **Reference YPAD** bundled for **`python f/fEngine.py --build`**: the engine reads `y/Mix/y1Plans.csv`, `y2Actions.csv`, `y3Designs.csv` as style and column-shape examples for the LLM. This folder must exist for `--build`. |
+| **`z/`** | **Outputs**: timestamped run folders per suite, results CSV, dashboard HTML, optional `_errors.csv`, zLog.txt. |
 | **`z/zDash_template.html`** | HTML template for the results dashboard (summary cards + results table). |
 | **`.github/workflows/build-executables.yml`** | CI: build PyInstaller executables on push/PR/tag and optionally create a Release. |
+
+**Layout convention:** one YPAD = **`y/<Name>.json`** + **`y/<Name>/`** containing (at least) **`y1Plans.csv`**, **`y2Actions.csv`**, **`y3Designs.csv`**. Point **`f/fStart.json`** → **`"configs": ["y/<Name>.json", ...]`** to run those suites.
+
+---
+
+## CLI flags and LLM workflows
+
+Only **one** of **`--build`**, **`--analyze`**, **`--heal`**, or **`--loop`** may be used at a time. Normal test runs omit these flags.
+
+| Flag | Arguments | Purpose |
+|------|------------|--------|
+| **`--config`** | Path to main JSON | Main config (default: **`f/fStart.json`** in development; beside the executable when frozen). |
+| **`--debug`** | (none) | Verbose debug logging and artifacts (e.g. under results **`_debug`**). |
+| **`--build`** | (none) | Reads **`BUILD.md`**, calls OpenAI to generate **`y/<ypad_name>/y1Plans.csv`**, **`y2Actions.csv`**, **`y3Designs.csv`**, writes **`y/<ypad_name>.json`**, sets **`f/fStart.json`** **`configs`** to that suite only, then runs the framework. Requires **`y/Mix/`** reference files and **`OPENAI_API_KEY`**. |
+| **`--analyze`** | **`y/<Suite>/`** or **`y/<Suite>`** or suite folder name | Runs **that** suite once, sends suite JSON + CSVs + latest **`z/`** results to OpenAI, prints **suggestions only** (no file changes). Requires **`OPENAI_API_KEY`**. |
+| **`--heal`** | Same path style as **`--analyze`** | Runs the suite, then sends context + results to OpenAI; validates returned CSVs; prints **unified diffs**, then **overwrites** the first **`yPlans` / `yActions` / `yDesigns`** paths in the suite JSON. Requires **`OPENAI_API_KEY`**. |
+| **`--loop`** | Same path style as **`--analyze`** | Runs **run → heal** up to **three** times, stopping as soon as **all plans pass**; a **final verify** suite run runs after the last heal if needed. Requires **`OPENAI_API_KEY`**. |
+
+**YPAD path examples:** `python f/fEngine.py --heal y/Cric/` — resolves to **`y/Cric.json`** and folder **`y/Cric/`** (also accepts **`Cric`** or an absolute path to **`y/Cric`**).
+
+**Environment:** set **`OPENAI_API_KEY`** in **`.env`** at the project root for any LLM flag.
+
+**Results:** `--analyze`, `--heal`, and `--loop` still write each suite run under **`z/<timestamp>_<SuiteName>/`** like a normal run.
 
 ---
 
@@ -175,7 +204,7 @@ Actions are implemented in **`x/xActions.py`** and documented in **`x/xCapa.csv`
 ## Running Tests
 
 ```bash
-# Default: f/fStart.json → configs listed there (e.g. y/Mix.json)
+# Default: f/fStart.json → every suite in "configs" (e.g. y/Cric.json, y/Mix.json)
 python f/fEngine.py
 
 # Custom main config
@@ -184,6 +213,8 @@ python f/fEngine.py --config path/to/start.json
 # Debug mode: extra artifacts (screenshots, page source) in results_dir/_debug
 python f/fEngine.py --debug
 ```
+
+For **LLM** commands (`--build`, `--analyze`, `--heal`, `--loop`), see [CLI flags and LLM workflows](#cli-flags-and-llm-workflows).
 
 - Only plans with **Run = Y** are executed.
 - If **tags** are set in `f/fStart.json`, only plans whose **Tags** match are run (special value **All** = no tag filter).
@@ -236,8 +267,11 @@ From **requirements.txt**:
 - **pandas** – CSV/Excel/JSON loading, result tables.
 - **requests** – API actions.
 - **selenium** – UI (Chrome) actions.
+- **webdriver-manager** – ChromeDriver matching installed Chrome.
 - **pyinstaller** – for building executables.
 - **openpyxl** – for Excel input files (.xlsx).
+- **python-dotenv** – load **`.env`** (e.g. **`OPENAI_API_KEY`**).
+- **openai** – OpenAI API client for **`--build`**, **`--analyze`**, **`--heal`**, **`--loop`**.
 
 Optional at runtime:
 
@@ -251,10 +285,11 @@ Optional at runtime:
 ## Summary for New Users
 
 1. **Install**: `pip install -r requirements.txt`
-2. **Configure**: Edit **f/fStart.json** (and optionally **tags**); ensure at least one suite JSON under **y/** points to valid **y1Plans**, **y2Actions**, **y3Designs**.
+2. **Configure**: Edit **f/fStart.json** (and optionally **tags**); ensure each entry in **`configs`** points to a **`y/<Suite>.json`** whose **`input_files`** reference valid **y1Plans**, **y2Actions**, **y3Designs** (typically under **`y/<Suite>/`**).
 3. **Data**: Set **Run = Y** for plans to run; use **y3Designs** to define variables (DataName) per **DesignId** and reference them in **Input**/**Expected** in **y2Actions**.
-4. **Run**: `python f/fEngine.py` (or `--config` / `--debug` as needed).
-5. **Results**: Open **`z/<timestamp>_<SuiteName>/<SuiteName>_zDash.html`** and **`*_zResults.csv`**.
-6. **Custom steps**: Add methods in **x/xCustom.py** and call them with **ActionType = xCustom** in **y2Actions.csv**.
+4. **Run**: `python f/fEngine.py` (or **`--config`** / **`--debug`** as needed).
+5. **LLM (optional)**: Put **`OPENAI_API_KEY`** in **`.env`**. Use **`--build`** with **BUILD.md** to generate a new YPAD; use **`--analyze`**, **`--heal`**, or **`--loop`** on a suite path such as **`y/Cric/`** (see [CLI flags and LLM workflows](#cli-flags-and-llm-workflows)).
+6. **Results**: Open **`z/<timestamp>_<SuiteName>/<SuiteName>_zDash.html`** and **`*_zResults.csv`**.
+7. **Custom steps**: Add methods in **x/xCustom.py** and call them with **ActionType = xCustom** in **y2Actions.csv**.
 
-For building distributable executables and CI, follow **BUILD.md** and the GitHub Actions workflow.
+For PyInstaller packaging, see **BUILD.md** (build section) and the GitHub Actions workflow. **BUILD.md** at the repo root is also the spec file for **`fEngine.py --build`** (automation requirements).

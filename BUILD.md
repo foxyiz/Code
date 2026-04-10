@@ -1,112 +1,42 @@
-# Building Executables with GitHub Actions
+---
+ypad_name: Cric
+---
 
-This project uses GitHub Actions to automatically build executables for Windows, macOS, and Linux.
+## Purpose
 
-## How It Works
+End-to-end **browser** checks against the real site [https://www.espncricinfo.com/](https://www.espncricinfo.com/): open a session, load cricket pages, wait for match UI, and **read visible score text** for a **live** match and for the **most recent** (or top-listed) match. Results go under `z/` as `YPAD_zResults.csv` and `YPAD_zDash.html`.
 
-The workflow (`.github/workflows/build-executables.yml`) automatically:
-- Builds executables for **Windows**, **macOS**, and **Linux**
-- Installs all dependencies including Chrome for Selenium
-- Uses PyInstaller to create standalone executables
-- Uploads build artifacts for download
+Use only actions that exist in `x/xCapa.csv` (primarily **xUI**: `xOpenBrowser`, `xNavigate`, `xWaitFor`, `xClick`, `xGetText`, `xGetTitle`, `xGetCurrentUrl`, `xCloseBrowser`). Resolve URLs and locators from **y3Designs** (`browser_type`, `cricinfo_home_url`, `live_scores_url`, CSS/XPath strings, etc.). Chain steps with `{{step:StepId}}` in `Input` / `Expected` when a later step needs the prior step’s **Output**.
 
-## Triggering Builds
+## Plans
 
-### Automatic Builds
-The workflow runs automatically on:
-- **Every push** to the `main` branch
-- **Every pull request** to the `main` branch
-- **Every tag** starting with `v` (e.g., `v1.0.0`)
+1. **PLiveScoreStrip** — **Goal:** Fetch the **visible score line** for a **live** match (runs/wickets, teams, or “Live” state) from the homepage or live-scores view.
+   - `xOpenBrowser` with `browser_type` from design.
+   - `xNavigate` to `cricinfo_home_url` **or** `live_scores_url` (prefer the URL that shows the live strip on load).
+   - `xWaitFor` on `locator_live_match_container` (or equivalent) until the live block is present.
+   - `xGetText` on `locator_live_score_text` (first live match row / ribbon). **Expected:** leave blank if you only need to prove the element was read; otherwise set **Expected** to the exact string the engine should match (same plan/design run), knowing the engine does **string equality** on non-numeric outputs.
+   - `xCloseBrowser`.
+   - **Critical:** `y` on steps that must pass for the plan to mean “we saw live score text.”
 
-### Manual Builds
-You can manually trigger a build:
-1. Go to your GitHub repository
-2. Click on **Actions** tab
-3. Select **Build Executables** workflow
-4. Click **Run workflow** button
-5. Select the branch and click **Run workflow**
+2. **PMostRecentMatchScore** — **Goal:** Open the **most recent** or **top-listed** match (often the first result row on the live-scores page) and read its **score or header** from the match page.
+   - `xOpenBrowser` (`browser_type`).
+   - `xNavigate` to `live_scores_url` (e.g. live-cricket-score index).
+   - `xWaitFor` `locator_match_list_ready`.
+   - `xClick` `locator_first_match_link` (or the link for the most recent completed fixture if that is what the row represents—document in `StepInfo`).
+   - `xWaitFor` `locator_match_page_score_or_title` on the match detail page.
+   - `xGetText` on that locator **or** `xGetTitle` / `xGetCurrentUrl` if you are only asserting navigation; prefer **score/header text** in `xGetText` for “fetch score.”
+   - `xCloseBrowser`.
 
-## Downloading Built Executables
+3. **PCricinfoPageLoad** (optional sanity) — **Goal:** Confirm the site responds and branding is correct before deep locators.
+   - `xOpenBrowser`, `xNavigate` to `cricinfo_home_url`, `xWaitFor` `locator_body_or_main`, `xGetTitle` with **Expected** set to the **exact** title string your browser returns (tune once from a manual run), or skip strict **Expected** if you only need load proof.
 
-### From Workflow Runs
-1. Go to the **Actions** tab in your GitHub repository
-2. Click on a completed workflow run
-3. Scroll down to **Artifacts** section
-4. Download the executable for your platform:
-   - `Foxyiz-windows` - Windows executable
-   - `Foxyiz-macos` - macOS executable
-   - `Foxyiz-linux` - Linux executable
+## Tags
 
-### From Releases (Recommended)
-When you create a version tag, executables are automatically attached to a GitHub Release:
+Use tag **All** on every plan in **y1Plans.csv** so optional `tags` filtering in `f/fStart.json` does not exclude them.
 
-1. Create a tag (e.g., `v1.0.0`):
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
+## Notes
 
-2. Go to the **Releases** section of your repository
-3. Download the executable for your platform
-
-## Creating a Release with Executables
-
-To create a new release with built executables:
-
-```bash
-# Tag your commit
-git tag -a v1.0.0 -m "Release version 1.0.0"
-
-# Push the tag to GitHub
-git push origin v1.0.0
-```
-
-The workflow will automatically:
-1. Build executables for all platforms
-2. Create a GitHub Release
-3. Attach all executables to the release
-
-## Build Artifacts
-
-Each build produces:
-- **Foxyiz-windows**: Windows executable (`.exe`)
-- **Foxyiz-macos**: macOS executable (Unix executable)
-- **Foxyiz-linux**: Linux executable (Unix executable)
-
-All executables are standalone and include:
-- Python runtime
-- All dependencies (pandas, numpy, selenium, requests, urllib3)
-- Required files from `x/`, `y/`, and `z/` directories
-
-## Local Building
-
-To build locally:
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Build executable (Unix: macOS/Linux)
-pyinstaller --onefile --add-data "x/xActions.py:x" --add-data "y:y" --add-data "z/zDash_template.html:z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz f/fEngine.py
-
-# Find executable in dist/ directory
-```
-
-Note: On Unix-based systems (macOS/Linux), use `:` as path separator. On Windows, use `;`:
-```bash
-# Windows
-pyinstaller --onefile --add-data "x/xActions.py;x" --add-data "y;y" --add-data "z/zDash_template.html;z" --hidden-import pandas --hidden-import x.xActions --hidden-import numpy --hidden-import selenium --hidden-import requests --hidden-import urllib3 --hidden-import requests.adapters --hidden-import requests.auth --hidden-import requests.cookies --hidden-import requests.exceptions --hidden-import requests.sessions --hidden-import requests.utils --hidden-import multiprocessing.spawn --hidden-import multiprocessing.semaphore_tracker --name Foxyiz f/fEngine.py
-```
-
-## Troubleshooting
-
-If builds fail:
-1. Check the **Actions** tab for error logs
-2. Ensure all dependencies are in `requirements.txt`
-3. Verify the `x/` and `y/` directories exist in your repository
-4. Check that `f/fEngine.py` exists in the repository
-
-## Workflow Status
-
-Check the current build status in the **Actions** tab of your GitHub repository.
-
+- **Network + browser:** needs a real browser driver (e.g. Chrome + matching driver) and outbound HTTPS; not an offline smoke test.
+- **Locators:** Cricinfo changes DOM often; store selectors in **y3Designs** and refresh when the UI shifts. Prefer stable attributes (data-testid if present) over brittle nth-child-only CSS.
+- **Expected values:** For `xGetText`, dynamic scores change every ball—use blank **Expected** for capture-only steps, or split “read” vs “compare” only when you can supply a fixed **Expected** (e.g. title).
+- Regenerate CSVs via LLM: `python f/fEngine.py --build` with `OPENAI_API_KEY` set; requires reference suite under `y/Mix/`.

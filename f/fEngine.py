@@ -11,7 +11,14 @@ import platform
 from datetime import datetime
 import multiprocessing
 import io
+import re
+import difflib
 from concurrent.futures import ProcessPoolExecutor
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 # Root directory for development mode when engine lives under f/
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -1083,7 +1090,7 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
         ypad_config = load_config(config_path)
     except FileNotFoundError:
         print_status(f"yPAD config not found: {config_path}", "ERROR")
-        return
+        return None
     ypad_name = os.path.splitext(os.path.basename(config_path))[0]
     output_dir = os.path.join(
         _results_z_root(),
@@ -1110,7 +1117,7 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
         print_status(f"Total plans loaded: {len(y1_plans)} from {len(y1_plans_list)} file(s)", "INFO")
     else:
         print_status("No plan files could be loaded", "ERROR")
-        return
+        return None
 
     # Check if 'Run' column exists (case-insensitive check)
     run_column = None
@@ -1126,7 +1133,7 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
         print_status(f"Available columns: {available_columns}", "ERROR")
         print_status(f"CSV file: {ypad_config['input_files']['yPlans'][0]}", "ERROR")
         print_status(f"Number of columns: {len(y1_plans.columns)}", "ERROR")
-        return
+        return None
 
     plans_to_run = y1_plans[y1_plans[run_column] == 'Y']
 
@@ -1164,7 +1171,7 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
 
     if len(plans_to_run) == 0:
         print_status("No plans marked for execution (Run=Y)", "WARNING")
-        return
+        return None
 
     all_results = []
     for plan_index, (_, plan_row) in enumerate(plans_to_run.iterrows(), 1):
@@ -1211,7 +1218,9 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
         'failed': failed_plans,
         'total_time': total_time,
         'output_dir': output_dir,
-        'dashboard_path': dashboard_path
+        'dashboard_path': dashboard_path,
+        'ypad_name': ypad_name,
+        'results_csv': os.path.join(output_dir, f"{ypad_name}_zResults.csv"),
     }
 
     print_summary(summary_stats)
@@ -1241,6 +1250,8 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
                     xActions.UIActionHandler._thread_local.driver = None
     except Exception:
         pass
+
+    return summary_stats
 
 
 def run_ypad_suite_worker(args):
@@ -1314,6 +1325,890 @@ def _wait_future_with_heartbeat(future, suite_name, config_index, total_configs,
         time.sleep(max(0.5, float(interval_sec)))
 
 
+# --- LLM YPAD build (--build) -------------------------------------------------
+
+OPENAI_MODEL_YPAD_BUILD = "gpt-4o"
+
+# Sample BUILD.md (repo root). Front matter sets ypad_name; body is free-form requirements.
+SAMPLE_BUILD_MD = """---
+ypad_name: MySuite
+---
+
+Describe the automation you need: goals, applications under test, environments, tags, and
+any constraints. Use placeholder names in prose for secrets (e.g. MY_API_KEY) — real values
+belong in .env and are referenced by name in y3Designs only.
+"""
+
+
+def _resolved_main_config_path_for_write():
+    rel = _default_main_config_path()
+    if os.path.isabs(rel):
+        return rel
+    return _resource_path(rel)
+
+
+def _parse_build_md(content):
+    """Parse BUILD.md front matter for ypad_name; return (sanitized_name, body_markdown)."""
+    content = content.strip()
+    if not content.startswith('---'):
+        raise ValueError(
+            "BUILD.md must start with YAML front matter. Example:\n" + SAMPLE_BUILD_MD
+        )
+    lines = content.splitlines()
+    if len(lines) < 3 or lines[0].strip() != '---':
+        raise ValueError("BUILD.md front matter must start with ---")
+    meta = {}
+    i = 1
+    while i < len(lines) and lines[i].strip() != '---':
+        line = lines[i]
+        if ':' in line:
+            k, _, v = line.partition(':')
+            meta[k.strip()] = v.strip().strip('"').strip("'")
+        i += 1
+    if i >= len(lines) or lines[i].strip() != '---':
+        raise ValueError("BUILD.md front matter must end with a line ---")
+    body = '\n'.join(lines[i + 1:]).strip()
+    name = meta.get('ypad_name') or meta.get('YPAD_NAME')
+    if not name:
+        raise ValueError(
+            "BUILD.md must set ypad_name in front matter. Example:\n" + SAMPLE_BUILD_MD
+        )
+    return name, body
+
+
+def _sanitize_ypad_folder_base(name):
+    s = re.sub(r'[^\w\-]+', '_', name.strip())
+    s = s.strip('_')
+    if not s:
+        raise ValueError('ypad_name is empty after sanitization')
+    if len(s) > 64:
+        s = s[:64]
+    return s
+
+
+def _allocate_unique_ypad_folder(base_safe, project_root):
+    y_dir = os.path.join(project_root, 'y')
+    os.makedirs(y_dir, exist_ok=True)
+    if not os.path.exists(os.path.join(y_dir, base_safe)):
+        return base_safe
+    n = 1
+    while os.path.exists(os.path.join(y_dir, f'{base_safe}_{n}')):
+        n += 1
+    return f'{base_safe}_{n}'
+
+
+def _validate_generated_ypad_csvs(y1s, y2s, y3s, design_columns, capa_text):
+    """Parse and validate CSV strings; raise ValueError on failure."""
+    required_y1 = ['PlanId', 'PlanName', 'DesignId', 'Run', 'Tags', 'Output']
+    required_y2 = ['PlanId', 'StepId', 'StepInfo', 'ActionType', 'ActionName', 'Input', 'Output', 'Expected', 'Critical']
+    try:
+        df1 = pd.read_csv(io.StringIO(y1s))
+        df2 = pd.read_csv(io.StringIO(y2s))
+        df3 = pd.read_csv(io.StringIO(y3s))
+    except Exception as e:
+        raise ValueError(f'CSV parse failed: {e}') from e
+    for col in required_y1:
+        if col not in df1.columns:
+            raise ValueError(f'y1Plans missing column: {col}')
+    for col in required_y2:
+        if col not in df2.columns:
+            raise ValueError(f'y2Actions missing column: {col}')
+    if 'Type' not in df3.columns or 'DataName' not in df3.columns:
+        raise ValueError('y3Designs must have Type and DataName columns')
+    for dc in design_columns:
+        if dc not in df3.columns:
+            raise ValueError(f'y3Designs missing design column {dc} (expected {design_columns})')
+    allowed = xActions.ypad_build_allowed_actions_from_capa(capa_text)
+    ok, err = xActions.ypad_build_validate_y2_against_capa(df2, allowed)
+    if not ok:
+        raise ValueError(err)
+    plan_ids_y1 = set(df1['PlanId'].astype(str))
+    plan_ids_y2 = set(df2['PlanId'].astype(str))
+    for _, row in df1.iterrows():
+        if str(row.get('Run', '')).strip().upper() != 'Y':
+            continue
+        pid = str(row['PlanId'])
+        if pid not in plan_ids_y2:
+            raise ValueError(f'Plan {pid} is Run=Y but has no rows in y2Actions')
+    for pid in plan_ids_y2:
+        if pid not in plan_ids_y1:
+            raise ValueError(f'y2Actions references unknown PlanId {pid}')
+    return df1, df2, df3
+
+
+def _call_openai_ypad_build(system_prompt, user_prompt, model=None):
+    if OpenAI is None:
+        raise RuntimeError('openai package is required. Install with: pip install openai')
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        raise RuntimeError('OPENAI_API_KEY is not set (add it to .env)')
+    client = OpenAI(api_key=api_key)
+    use_model = model or OPENAI_MODEL_YPAD_BUILD
+    resp = client.chat.completions.create(
+        model=use_model,
+        messages=[
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ],
+        response_format={'type': 'json_object'},
+    )
+    raw = resp.choices[0].message.content
+    if not raw:
+        raise RuntimeError('OpenAI returned empty content')
+    return json.loads(raw)
+
+
+def run_ypad_build_from_md():
+    """
+    Read BUILD.md, call OpenAI, validate CSVs, write y/<name>/y*.csv and y/<name>.json,
+    replace fStart.json configs with the new YPAD. Raises on any failure (no partial writes).
+    """
+    build_path = os.path.join(PROJECT_ROOT, 'BUILD.md')
+    if not os.path.isfile(build_path):
+        raise FileNotFoundError(f'BUILD.md not found at project root: {build_path}')
+    with open(build_path, 'r', encoding='utf-8') as f:
+        build_text = f.read()
+    ypad_name_raw, body = _parse_build_md(build_text)
+    base_safe = _sanitize_ypad_folder_base(ypad_name_raw)
+    folder_name = _allocate_unique_ypad_folder(base_safe, PROJECT_ROOT)
+
+    ctx = xActions.ypad_build_llm_context(PROJECT_ROOT)
+    capa = ctx['xcapa_csv']
+    design_cols = ctx['design_columns']
+    dc_list = ', '.join(design_cols)
+
+    system_prompt = f"""You are an expert FoXYiZ YPAD author. Produce automation plans as CSV text.
+
+Output MUST be a single JSON object with exactly these keys:
+- "y1_plans_csv" — full CSV string for y1Plans (header + rows)
+- "y2_actions_csv" — full CSV string for y2Actions
+- "y3_designs_csv" — full CSV string for y3Designs
+
+Rules:
+1) y1Plans columns exactly: PlanId, PlanName, DesignId, Run, Tags, Output
+   - PlanId starts with P. Run is Y or N. Use semicolon-separated DesignId for multiple designs (e.g. D1;D2).
+2) y2Actions columns exactly: PlanId, StepId, StepInfo, ActionType, ActionName, Input, Output, Expected, Critical
+   - Critical is y or n (lowercase). StepId is sequential integers per plan.
+   - ActionType must be xUI, xMath, xAPI, xJSON, xAI, xSAP, xFile, xEmail, xDB, xLogic, xCloud, xIoT, xTime, xPhone, xReuse, or xCustom.
+   - ActionName MUST match the Action column in xCapa.csv for the corresponding Module (xCapa Module UI maps to ActionType xUI; use ONLY names listed in xCapa for that module).
+   - For xReuse, ActionName is the PlanId to reuse.
+3) y3Designs columns: Type, DataName, then EXACTLY these design columns in order: {dc_list}
+   - Use placeholder tokens in cell values for secrets (e.g. MY_API_KEY) — never real secrets.
+4) Match the style and linking between the three files like the reference Mix YPAD: every PlanId in y1 with Run=Y must have steps in y2; every Input reference to a design key must exist in y3 DataName.
+5) Escape CSV quoting correctly (double quotes inside fields).
+
+Reference design column count from the Mix YPAD: {len(design_cols)} ({dc_list})."""
+
+    user_prompt = f"""## xCapa.csv (authoritative Action names and types)\n\n{capa}\n\n## Reference Mix YPAD — y1Plans.csv\n\n{ctx['mix_y1Plans.csv']}\n\n## Reference Mix YPAD — y2Actions.csv\n\n{ctx['mix_y2Actions.csv']}\n\n## Reference Mix YPAD — y3Designs.csv\n\n{ctx['mix_y3Designs.csv']}\n\n## BUILD.md requirements (body)\n\n{body}\n"""
+
+    print_header("YPAD BUILD (LLM)")
+    print_status(f"Target folder: y/{folder_name}/", "INFO")
+    print_status(f"Calling OpenAI model {OPENAI_MODEL_YPAD_BUILD}...", "RUNNING")
+
+    data = _call_openai_ypad_build(system_prompt, user_prompt)
+    for key in ('y1_plans_csv', 'y2_actions_csv', 'y3_designs_csv'):
+        if key not in data:
+            raise ValueError(f'OpenAI JSON missing key: {key}')
+    y1s = data['y1_plans_csv']
+    y2s = data['y2_actions_csv']
+    y3s = data['y3_designs_csv']
+
+    print_status("Validating generated CSVs...", "INFO")
+    _validate_generated_ypad_csvs(y1s, y2s, y3s, design_cols, capa)
+
+    ypad_dir = os.path.join(PROJECT_ROOT, 'y', folder_name)
+    json_rel = f'y/{folder_name}.json'
+    json_abs = os.path.join(PROJECT_ROOT, 'y', f'{folder_name}.json')
+    cfg_payload = {
+        'input_files': {
+            'yPlans': [f'y/{folder_name}/y1Plans.csv'],
+            'yActions': [f'y/{folder_name}/y2Actions.csv'],
+            'yDesigns': [f'y/{folder_name}/y3Designs.csv'],
+        }
+    }
+
+    try:
+        os.makedirs(ypad_dir, exist_ok=True)
+        with open(os.path.join(ypad_dir, 'y1Plans.csv'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write(y1s if y1s.endswith('\n') else y1s + '\n')
+        with open(os.path.join(ypad_dir, 'y2Actions.csv'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write(y2s if y2s.endswith('\n') else y2s + '\n')
+        with open(os.path.join(ypad_dir, 'y3Designs.csv'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write(y3s if y3s.endswith('\n') else y3s + '\n')
+        with open(json_abs, 'w', encoding='utf-8') as f:
+            json.dump(cfg_payload, f, indent=2)
+            f.write('\n')
+
+        main_cfg_path = _resolved_main_config_path_for_write()
+        existing = {}
+        if os.path.isfile(main_cfg_path):
+            with open(main_cfg_path, 'r', encoding='utf-8') as f:
+                existing = json.load(f)
+        existing['configs'] = [json_rel]
+        with open(main_cfg_path, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, indent=2)
+            f.write('\n')
+    except Exception:
+        shutil.rmtree(ypad_dir, ignore_errors=True)
+        if os.path.isfile(json_abs):
+            try:
+                os.remove(json_abs)
+            except OSError:
+                pass
+        raise
+
+    print_status(f"Wrote {json_rel} and y/{folder_name}/y1Plans.csv, y2Actions.csv, y3Designs.csv", "SUCCESS")
+    print_status(f"Updated main config to run only: {json_rel}", "SUCCESS")
+
+
+# --- YPAD analyze (--analyze) -------------------------------------------------
+
+OPENAI_MODEL_YPAD_ANALYZE = "gpt-4o"
+_MAX_ANALYZE_USER_PROMPT_CHARS = 120000
+
+
+def _parse_ypad_cli_path(arg):
+    """
+    Normalize CLI path to a YPAD suite JSON under project root, e.g. y/Cric/ -> y/Cric.json.
+    Accepts: y/Cric/, y/Cric, Cric (folder name only). Used by --analyze, --heal, and --loop.
+    """
+    if not arg or not str(arg).strip():
+        raise ValueError("Missing path after --analyze, --heal, or --loop (e.g. y/Cric/)")
+    s = str(arg).strip().strip('"').rstrip("/\\").replace("\\", "/")
+    # Resolve so y/<name> works even when cwd is not the project root
+    if os.path.isabs(s) or (len(s) > 1 and s[1] == ":"):
+        _cand = os.path.abspath(s.replace("/", os.sep))
+    else:
+        _cand = os.path.join(PROJECT_ROOT, *s.split("/"))
+    if os.path.isdir(_cand):
+        try:
+            s = os.path.relpath(os.path.abspath(_cand), PROJECT_ROOT).replace("\\", "/")
+        except ValueError:
+            pass
+    if s.lower().endswith(".json"):
+        rel = s
+        base = os.path.splitext(os.path.basename(rel))[0]
+        ydir = os.path.join(PROJECT_ROOT, "y", base)
+        if not os.path.isfile(_resource_path(rel)):
+            raise FileNotFoundError(f"YPAD config not found: {rel}")
+        if not os.path.isdir(ydir):
+            raise FileNotFoundError(f"YPAD folder not found: y/{base}/")
+        return rel, base
+    parts = [p for p in s.split("/") if p and p != "."]
+    if not parts:
+        raise ValueError("Invalid YPAD path")
+    if parts[0] != "y":
+        if len(parts) != 1:
+            raise ValueError("Use y/<folder>/ or the folder name only (e.g. Cric)")
+        suite_name = parts[0]
+    else:
+        if len(parts) < 2:
+            raise ValueError("Use y/<folder>/ (e.g. y/Cric/)")
+        suite_name = parts[1]
+    json_rel = f"y/{suite_name}.json"
+    json_abs = _resource_path(json_rel)
+    ydir = os.path.join(PROJECT_ROOT, "y", suite_name)
+    if not os.path.isdir(ydir):
+        raise FileNotFoundError(f"YPAD folder not found: y/{suite_name}/")
+    if not os.path.isfile(json_abs):
+        raise FileNotFoundError(f"YPAD config not found: {json_rel} (create it next to y/{suite_name}/)")
+    return json_rel, suite_name
+
+
+def _truncate_for_analyze_llm(text, max_chars=_MAX_ANALYZE_USER_PROMPT_CHARS):
+    if text is None:
+        return ""
+    text = str(text)
+    if len(text) <= max_chars:
+        return text
+    head = max_chars // 2
+    tail = max_chars - head - 80
+    return (
+        text[:head]
+        + "\n\n... [truncated middle] ...\n\n"
+        + text[-tail:]
+    )
+
+
+def _design_columns_from_y3_config(ypad_cfg):
+    """Read D1, D2, ... column names from the first yDesigns file in the YPAD config."""
+    import csv
+
+    paths = ypad_cfg.get("input_files", {}).get("yDesigns", [])
+    if not paths:
+        raise ValueError("YPAD config has no yDesigns input_files")
+    p = _resource_path(paths[0])
+    with open(p, "r", encoding="utf-8") as f:
+        header = next(csv.reader(f))
+    cols = [c.strip() for c in header if re.match(r"^D\d+$", c.strip())]
+    if not cols:
+        raise ValueError(f"No D1,D2,... columns in {paths[0]}")
+    return cols
+
+
+def _gather_ypad_review_context(json_rel, stats):
+    """
+    Load suite JSON, y1/y2/y3 CSVs, latest zResults, and _errors.csv into one markdown blob.
+    stats must be the dict returned by _execute_single_ypad_suite.
+    """
+    ypad_cfg = load_config(json_rel)
+    parts = []
+    cfg_abs = _resource_path(json_rel)
+    try:
+        with open(cfg_abs, "r", encoding="utf-8") as f:
+            parts.append(f"## {json_rel}\n\n```json\n{f.read()}\n```\n")
+    except OSError as e:
+        parts.append(f"## {json_rel}\n\n(read failed: {e})\n")
+
+    for key in ("yPlans", "yActions", "yDesigns"):
+        paths = ypad_cfg.get("input_files", {}).get(key, [])
+        for p in paths:
+            try:
+                rp = _resource_path(p)
+                with open(rp, "r", encoding="utf-8") as f:
+                    parts.append(f"## {p}\n\n```\n{f.read()}\n```\n")
+            except OSError as e:
+                parts.append(f"## {p}\n\n(read failed: {e})\n")
+
+    results_path = stats.get("results_csv")
+    if results_path and os.path.isfile(results_path):
+        try:
+            with open(results_path, "r", encoding="utf-8") as f:
+                parts.append(f"## Latest run results ({os.path.basename(results_path)})\n\n```\n{f.read()}\n```\n")
+        except OSError as e:
+            parts.append(f"## Latest run results\n\n(read failed: {e})\n")
+
+    err_path = os.path.join(stats.get("output_dir", ""), "_errors.csv")
+    if err_path and os.path.isfile(err_path):
+        try:
+            with open(err_path, "r", encoding="utf-8") as f:
+                parts.append(f"## _errors.csv\n\n```\n{f.read()}\n```\n")
+        except OSError:
+            pass
+
+    return _truncate_for_analyze_llm("\n".join(parts))
+
+
+def _call_openai_ypad_analyze(system_prompt, user_prompt):
+    if OpenAI is None:
+        raise RuntimeError("openai package is required. Install with: pip install openai")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set (add it to .env)")
+    client = OpenAI(api_key=api_key)
+    resp = client.chat.completions.create(
+        model=OPENAI_MODEL_YPAD_ANALYZE,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+    )
+    raw = resp.choices[0].message.content
+    if not raw:
+        raise RuntimeError("OpenAI returned empty content")
+    return json.loads(raw)
+
+
+def run_ypad_analyze(ypad_path_arg, main_config_path, debug_from_cli=False):
+    """
+    Run a single YPAD suite, then send suite CSVs + run results to OpenAI.
+    Prints only actionable suggestions to stdout (no file changes).
+    Returns 0 on success, 1 on failure.
+    """
+    load_env()
+    json_rel, suite_name = _parse_ypad_cli_path(ypad_path_arg)
+
+    try:
+        main_config = load_config(main_config_path)
+    except FileNotFoundError:
+        print_status(f"Main config not found: {main_config_path}", "ERROR")
+        return 1
+
+    print_header("YPAD ANALYZE")
+    print_status(f"Suite: {suite_name} ({json_rel})", "INFO")
+    print_status(f"Model: {OPENAI_MODEL_YPAD_ANALYZE}", "INFO")
+
+    timeout = int(main_config.get("timeout", 6))
+    debug_mode = bool(debug_from_cli or main_config.get("debug", False))
+    headless_mode = bool(main_config.get("headless", False))
+    if headless_mode:
+        os.environ["FOXYIZ_HEADLESS"] = "true"
+    else:
+        os.environ["FOXYIZ_HEADLESS"] = "false"
+
+    try:
+        if hasattr(xActions, "set_debug_mode"):
+            xActions.set_debug_mode(debug_mode)
+    except Exception:
+        pass
+
+    start_time = time.time()
+    stats = _execute_single_ypad_suite(1, 1, json_rel, main_config, debug_mode, timeout, start_time)
+    if not stats:
+        print_status("Suite run did not produce results; skipping LLM analysis.", "ERROR")
+        return 1
+
+    user_blob = _gather_ypad_review_context(json_rel, stats)
+
+    system_prompt = """You are an expert FoXYiZ YPAD reviewer. You receive the suite JSON, y1/y2/y3 CSVs, and the latest execution results (per-step outputs).
+
+Internally reason about failures, flaky steps, and design issues. Respond with a single JSON object and ONLY this key:
+- "suggestions" — array of strings; each is one concrete, actionable improvement to the YPAD (plans, steps, locators, Expected values, Critical flags, design data, tags, timeouts, or structure).
+
+Rules:
+- Do not include an "observations" key in the JSON.
+- Do not repeat the raw CSVs back.
+- If the suite is already strong, return a short list (e.g. one item about monitoring or maintenance) or an empty array."""
+
+    user_prompt = f"""## Suite name: {suite_name}
+
+## Run summary (from engine)
+- Total plans: {stats.get("total_plans")}
+- Passed: {stats.get("passed")}
+- Failed: {stats.get("failed")}
+- Results directory: {stats.get("output_dir")}
+- Dashboard: {stats.get("dashboard_path")}
+
+## YPAD files and results
+
+{user_blob}
+"""
+
+    print_status("Calling OpenAI for suggestions...", "RUNNING")
+    try:
+        data = _call_openai_ypad_analyze(system_prompt, user_prompt)
+    except Exception as e:
+        print_status(f"OpenAI analysis failed: {e}", "ERROR")
+        return 1
+
+    suggestions = data.get("suggestions")
+    if suggestions is None:
+        print_status('OpenAI JSON missing "suggestions" key.', "ERROR")
+        return 1
+    if not isinstance(suggestions, list):
+        print_status('"suggestions" must be an array of strings.', "ERROR")
+        return 1
+
+    print_header("YPAD ANALYSIS — SUGGESTIONS")
+    if not suggestions:
+        print("No suggestions.")
+    else:
+        for i, item in enumerate(suggestions, 1):
+            line = str(item).strip() if item is not None else ""
+            if line:
+                print(f"{i}. {line}")
+    print()
+    return 0
+
+
+OPENAI_MODEL_YPAD_HEAL = "gpt-4o"
+
+
+def _normalize_heal_newlines(s):
+    return str(s).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _pad_csv_disk_form(s):
+    """Normalize line endings and trailing newline the same way heal writes files."""
+    t = _normalize_heal_newlines(str(s))
+    return t if t.endswith("\n") else t + "\n"
+
+
+def _print_heal_file_diffs(ypad_cfg, y1s, y2s, y3s):
+    """Read current files from disk, compare to healed content, print unified diffs to stdout."""
+    yp = ypad_cfg.get("input_files", {})
+    plans = yp.get("yPlans") or []
+    actions = yp.get("yActions") or []
+    designs = yp.get("yDesigns") or []
+    mapping = [
+        (plans[0], y1s, "y1Plans"),
+        (actions[0], y2s, "y2Actions"),
+        (designs[0], y3s, "y3Designs"),
+    ]
+    print_header("HEAL — FILE CHANGES")
+    any_change = False
+    for rel, new_raw, label in mapping:
+        new_form = _pad_csv_disk_form(new_raw)
+        abs_path = _resource_path(rel)
+        if os.path.isfile(abs_path):
+            with open(abs_path, "r", encoding="utf-8") as f:
+                old_form = _pad_csv_disk_form(f.read())
+        else:
+            old_form = ""
+        if old_form == new_form:
+            print_status(f"{rel} — no changes", "INFO")
+            continue
+        any_change = True
+        print()
+        print(f"  {rel}  ({label})")
+        print("  " + "-" * 56)
+        old_lines = old_form.splitlines(True)
+        new_lines = new_form.splitlines(True)
+        diff = difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{rel}",
+            tofile=f"b/{rel}",
+            n=3,
+        )
+        for line in diff:
+            sys.stdout.write(line)
+            if line and not line.endswith("\n"):
+                sys.stdout.write("\n")
+    if not any_change:
+        print()
+        print_status("Healed content matches files on disk (no edits).", "INFO")
+    print()
+
+
+def _write_heal_ypad_csvs(ypad_cfg, y1s, y2s, y3s):
+    """Overwrite the first yPlans, yActions, yDesigns paths in the suite config."""
+    yp = ypad_cfg.get("input_files", {})
+    plans = yp.get("yPlans") or []
+    actions = yp.get("yActions") or []
+    designs = yp.get("yDesigns") or []
+    if not plans or not actions or not designs:
+        raise ValueError("YPAD config must list yPlans, yActions, and yDesigns")
+    mapping = [
+        (plans[0], y1s),
+        (actions[0], y2s),
+        (designs[0], y3s),
+    ]
+    for rel, text in mapping:
+        abs_path = _resource_path(rel)
+        parent = os.path.dirname(abs_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_pad_csv_disk_form(text))
+
+
+def _ypad_suite_stats_all_passed(stats):
+    """True if the last suite run has at least one plan and zero failed plans."""
+    if not stats:
+        return False
+    try:
+        total = int(stats.get("total_plans", 0))
+        failed = int(stats.get("failed", -1))
+    except (TypeError, ValueError):
+        return False
+    return total > 0 and failed == 0
+
+
+def _heal_apply_from_last_run(json_rel, suite_name, stats, round_label=None):
+    """
+    OpenAI heal + validate + diff + write. Caller must have run the suite already (stats).
+    Returns 0 on success, 1 on failure.
+    """
+    ypad_cfg = load_config(json_rel)
+    try:
+        design_cols = _design_columns_from_y3_config(ypad_cfg)
+    except ValueError as e:
+        print_status(f"Invalid YPAD design files: {e}", "ERROR")
+        return 1
+
+    dc_list = ", ".join(design_cols)
+    ctx = xActions.ypad_build_llm_context(PROJECT_ROOT)
+    capa = ctx["xcapa_csv"]
+    user_blob = _gather_ypad_review_context(json_rel, stats)
+
+    system_prompt = f"""You are an expert FoXYiZ YPAD author. A test run just finished; your job is to return UPDATED y1Plans, y2Actions, and y3Designs CSVs that fix failures (wrong locators, Expected strings, Critical flags, design data, tags, or step order) while keeping the suite coherent.
+
+Output MUST be a single JSON object with exactly these keys:
+- "y1_plans_csv" — full CSV string for y1Plans (header + rows)
+- "y2_actions_csv" — full CSV string for y2Actions
+- "y3_designs_csv" — full CSV string for y3Designs
+
+Rules:
+1) y1Plans columns exactly: PlanId, PlanName, DesignId, Run, Tags, Output
+   - PlanId starts with P. Run is Y or N. Use semicolon-separated DesignId for multiple designs (e.g. D1;D2).
+2) y2Actions columns exactly: PlanId, StepId, StepInfo, ActionType, ActionName, Input, Output, Expected, Critical
+   - Critical is y or n (lowercase). StepId is sequential integers per plan.
+   - ActionType must be xUI, xMath, xAPI, xJSON, xAI, xSAP, xFile, xEmail, xDB, xLogic, xCloud, xIoT, xTime, xPhone, xReuse, or xCustom.
+   - ActionName MUST match the Action column in xCapa.csv for the corresponding Module (xCapa Module UI maps to ActionType xUI; use ONLY names listed in xCapa for that module).
+   - For xReuse, ActionName is the PlanId to reuse.
+3) y3Designs columns: Type, DataName, then EXACTLY these design columns in order: {dc_list}
+   - Preserve placeholder tokens for secrets (e.g. MY_API_KEY) — never invent real secrets.
+4) Every PlanId in y1 with Run=Y must have steps in y2; every Input reference to a design key must exist in y3 DataName.
+5) Escape CSV quoting correctly (double quotes inside fields).
+6) Prefer minimal edits: fix what broke; do not rename plans unless necessary.
+
+Design columns for this suite (must match y3): {len(design_cols)} ({dc_list})."""
+
+    user_prompt = f"""## xCapa.csv (authoritative Action names and types)
+
+{capa}
+
+## Reference Mix YPAD — y1Plans.csv
+
+{ctx["mix_y1Plans.csv"]}
+
+## Reference Mix YPAD — y2Actions.csv
+
+{ctx["mix_y2Actions.csv"]}
+
+## Reference Mix YPAD — y3Designs.csv
+
+{ctx["mix_y3Designs.csv"]}
+
+## Suite name: {suite_name}
+
+## Run summary (from engine)
+- Total plans: {stats.get("total_plans")}
+- Passed: {stats.get("passed")}
+- Failed: {stats.get("failed")}
+- Results directory: {stats.get("output_dir")}
+- Dashboard: {stats.get("dashboard_path")}
+
+## Current YPAD files and run results (replace with improved CSVs)
+
+{user_blob}
+"""
+
+    label = f" ({round_label})" if round_label else ""
+    print_status(f"Calling OpenAI to heal YPAD CSVs{label}...", "RUNNING")
+    try:
+        data = _call_openai_ypad_build(system_prompt, user_prompt, OPENAI_MODEL_YPAD_HEAL)
+    except Exception as e:
+        print_status(f"OpenAI heal failed: {e}", "ERROR")
+        return 1
+
+    for key in ("y1_plans_csv", "y2_actions_csv", "y3_designs_csv"):
+        if key not in data:
+            print_status(f'OpenAI JSON missing key: {key}', "ERROR")
+            return 1
+
+    y1s = data["y1_plans_csv"]
+    y2s = data["y2_actions_csv"]
+    y3s = data["y3_designs_csv"]
+
+    print_status("Validating healed CSVs...", "INFO")
+    try:
+        _validate_generated_ypad_csvs(y1s, y2s, y3s, design_cols, capa)
+    except ValueError as e:
+        print_status(f"Validation failed (files not written): {e}", "ERROR")
+        return 1
+
+    _print_heal_file_diffs(ypad_cfg, y1s, y2s, y3s)
+
+    try:
+        _write_heal_ypad_csvs(ypad_cfg, y1s, y2s, y3s)
+    except OSError as e:
+        print_status(f"Failed to write CSVs: {e}", "ERROR")
+        return 1
+
+    print_status(
+        "Healed YPAD written: y1Plans, y2Actions, y3Designs (per suite JSON paths).",
+        "SUCCESS",
+    )
+    return 0
+
+
+def run_ypad_heal(ypad_path_arg, main_config_path, debug_from_cli=False):
+    """
+    Run the YPAD suite, send suite CSVs + results to OpenAI, validate returned CSVs, and
+    overwrite y1/y2/y3 files in place. Does not modify the suite JSON path list.
+    Returns 0 on success, 1 on failure.
+    """
+    load_env()
+    json_rel, suite_name = _parse_ypad_cli_path(ypad_path_arg)
+
+    try:
+        main_config = load_config(main_config_path)
+    except FileNotFoundError:
+        print_status(f"Main config not found: {main_config_path}", "ERROR")
+        return 1
+
+    print_header("YPAD HEAL")
+    print_status(f"Suite: {suite_name} ({json_rel})", "INFO")
+    print_status(f"Model: {OPENAI_MODEL_YPAD_HEAL}", "INFO")
+
+    timeout = int(main_config.get("timeout", 6))
+    debug_mode = bool(debug_from_cli or main_config.get("debug", False))
+    headless_mode = bool(main_config.get("headless", False))
+    if headless_mode:
+        os.environ["FOXYIZ_HEADLESS"] = "true"
+    else:
+        os.environ["FOXYIZ_HEADLESS"] = "false"
+
+    try:
+        if hasattr(xActions, "set_debug_mode"):
+            xActions.set_debug_mode(debug_mode)
+    except Exception:
+        pass
+
+    start_time = time.time()
+    stats = _execute_single_ypad_suite(1, 1, json_rel, main_config, debug_mode, timeout, start_time)
+    if not stats:
+        print_status("Suite run did not produce results; cannot heal.", "ERROR")
+        return 1
+
+    return _heal_apply_from_last_run(json_rel, suite_name, stats)
+
+
+def run_ypad_loop(ypad_path_arg, main_config_path, debug_from_cli=False):
+    """
+    Run suite → if not all plans passed, heal → repeat up to 3 times.
+    Stops early when all plans pass. Requires OPENAI_API_KEY for heal steps.
+    Returns 0 if all plans pass within the loop, 1 otherwise.
+    """
+    load_env()
+    json_rel, suite_name = _parse_ypad_cli_path(ypad_path_arg)
+
+    try:
+        main_config = load_config(main_config_path)
+    except FileNotFoundError:
+        print_status(f"Main config not found: {main_config_path}", "ERROR")
+        return 1
+
+    print_header("YPAD LOOP")
+    print_status(f"Suite: {suite_name} ({json_rel})", "INFO")
+    print_status(
+        "Up to 3 heal rounds: run suite → if any plan fails, heal → repeat; then a final run to verify.",
+        "INFO",
+    )
+    print_status(f"Heal model: {OPENAI_MODEL_YPAD_HEAL}", "INFO")
+
+    timeout = int(main_config.get("timeout", 6))
+    debug_mode = bool(debug_from_cli or main_config.get("debug", False))
+    headless_mode = bool(main_config.get("headless", False))
+    if headless_mode:
+        os.environ["FOXYIZ_HEADLESS"] = "true"
+    else:
+        os.environ["FOXYIZ_HEADLESS"] = "false"
+
+    try:
+        if hasattr(xActions, "set_debug_mode"):
+            xActions.set_debug_mode(debug_mode)
+    except Exception:
+        pass
+
+    for round_idx in range(3):
+        print_header(f"YPAD LOOP — round {round_idx + 1} / 3")
+        start_time = time.time()
+        stats = _execute_single_ypad_suite(1, 1, json_rel, main_config, debug_mode, timeout, start_time)
+        if not stats:
+            print_status("Suite run did not produce results.", "ERROR")
+            return 1
+
+        if _ypad_suite_stats_all_passed(stats):
+            print_status("All plans passed. Stopping loop.", "SUCCESS")
+            return 0
+
+        print_status(
+            f"Not all plans passed (failed: {stats.get('failed', '?')}). Running heal...",
+            "WARNING",
+        )
+        rc = _heal_apply_from_last_run(
+            json_rel,
+            suite_name,
+            stats,
+            round_label=f"round {round_idx + 1}/3",
+        )
+        if rc != 0:
+            return rc
+
+    print_header("YPAD LOOP — verify run")
+    start_time = time.time()
+    stats = _execute_single_ypad_suite(1, 1, json_rel, main_config, debug_mode, timeout, start_time)
+    if not stats:
+        print_status("Verify run did not produce results.", "ERROR")
+        return 1
+    if _ypad_suite_stats_all_passed(stats):
+        print_status("All plans passed after heal loop.", "SUCCESS")
+        return 0
+
+    print_status(
+        "Still not all plans passed after 3 heal rounds (see latest z/ results).",
+        "ERROR",
+    )
+    return 1
+
+
+def run_framework_execution(config_path, debug_from_cli=False):
+    """Load main config and run all YPAD suites. Returns 0 on success, 2 if config missing."""
+    print_header("FoXYiZ Test Framework")
+    print_status("Loading configuration...", "INFO")
+
+    env_path = _env_path()
+    if env_path:
+        load_env()
+        print_status(f"Loaded .env from {os.path.dirname(env_path)}", "INFO")
+    else:
+        load_env()
+
+    try:
+        main_config = load_config(config_path)
+    except FileNotFoundError:
+        print_status(f"Main config not found: {config_path}", "ERROR")
+        print_status(
+            "Ensure fStart.json is next to the executable, or f/fStart.json if the exe is at project root (or pass --config).",
+            "ERROR",
+        )
+        return 2
+    configs = main_config.get("configs", [])
+    timeout = main_config.get("timeout", 6)
+    debug_mode = bool(debug_from_cli or main_config.get("debug", False))
+    headless_mode = bool(main_config.get("headless", False))
+
+    if headless_mode:
+        os.environ['FOXYIZ_HEADLESS'] = 'true'
+        print_status("Headless mode enabled", "INFO")
+    else:
+        os.environ['FOXYIZ_HEADLESS'] = 'false'
+        print_status("Headless mode disabled - browsers will open (cloud auto-detection enabled)", "INFO")
+
+    try:
+        if hasattr(xActions, 'set_debug_mode'):
+            xActions.set_debug_mode(debug_mode)
+    except Exception:
+        pass
+
+    max_threads = min(multiprocessing.cpu_count(), 4)
+    thread_count = int(main_config.get("thread_count", max_threads))
+    print_status(f"Using {thread_count} threads for parallel execution", "INFO")
+
+    start_time = time.time()
+
+    total_configs = len(configs)
+    suite_args = [
+        (i, total_configs, path, main_config, debug_mode, timeout, start_time)
+        for i, path in enumerate(configs, 1)
+    ]
+
+    if total_configs > 1 and thread_count > 1:
+        workers = min(thread_count, total_configs)
+        heartbeat_interval = main_config.get("heartbeat_interval", 3)
+        try:
+            heartbeat_interval = float(heartbeat_interval)
+        except (TypeError, ValueError):
+            heartbeat_interval = 3.0
+        if heartbeat_interval < 0.5:
+            heartbeat_interval = 0.5
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures_by_index = {
+                idx: executor.submit(run_ypad_suite_worker, suite_args[idx - 1])
+                for idx in range(1, total_configs + 1)
+            }
+            for idx in range(1, total_configs + 1):
+                config_path = suite_args[idx - 1][2]
+                suite_name = os.path.splitext(os.path.basename(config_path))[0]
+                _, captured = _wait_future_with_heartbeat(
+                    futures_by_index[idx],
+                    suite_name,
+                    idx,
+                    total_configs,
+                    heartbeat_interval,
+                )
+                sys.stdout.write(_normalize_buffered_output(captured))
+                sys.stdout.flush()
+    else:
+        for sargs in suite_args:
+            _execute_single_ypad_suite(*sargs)
+    return 0
+
+
 def main():
     """Main function to execute the test framework."""
     # Clear action cache to ensure fresh execution
@@ -1359,98 +2254,82 @@ def main():
         help="Path to the main config JSON file (default: f/fStart.json in dev; fStart.json or f/fStart.json next to exe when frozen)",
     )
     parser.add_argument('--debug', action='store_true', help="Enable verbose debug logging and error artifacts")
+    parser.add_argument(
+        '--build',
+        action='store_true',
+        help='Read BUILD.md, generate YPAD CSVs via OpenAI, update fStart.json, then run tests',
+    )
+    parser.add_argument(
+        '--analyze',
+        metavar='YPAD_PATH',
+        default=None,
+        help='Run YPAD at y/<name>/, send suite CSVs + run results to OpenAI; print suggestions only (no file changes)',
+    )
+    parser.add_argument(
+        '--heal',
+        metavar='YPAD_PATH',
+        default=None,
+        help='Run YPAD, send suite + results to OpenAI, validate and overwrite y1/y2/y3 CSVs in place',
+    )
+    parser.add_argument(
+        '--loop',
+        metavar='YPAD_PATH',
+        default=None,
+        help='Run suite and heal up to 3 times; stop early when all plans pass; final verify run after heals',
+    )
     args = parser.parse_args()
 
-    # Show startup banner
-    print_header("FoXYiZ Test Framework")
-    print_status("Loading configuration...", "INFO")
-    
-    # Load .env for sensitive placeholders used in y3Designs (e.g. OPENWEATHERMAP_API, EMAIL_ID)
-    env_path = _env_path()
-    if env_path:
+    _mode_flags = sum(1 for x in (args.build, args.analyze, args.heal, args.loop) if x)
+    if _mode_flags > 1:
+        print_status('Use only one of --build, --analyze, --heal, or --loop.', 'ERROR')
+        return 1
+
+    if args.build:
         load_env()
-        print_status(f"Loaded .env from {os.path.dirname(env_path)}", "INFO")
-    else:
-        load_env()
-    
-    # Load main config
-    # Resolve default config if not provided
-    try:
-        main_config = load_config(args.config)
-    except FileNotFoundError:
-        print_status(f"Main config not found: {args.config}", "ERROR")
-        print_status(
-            "Ensure fStart.json is next to the executable, or f/fStart.json if the exe is at project root (or pass --config).",
-            "ERROR",
-        )
-        return 2
-    configs = main_config.get("configs", [])
-    timeout = main_config.get("timeout", 6)
-    debug_mode = bool(args.debug or main_config.get("debug", False))
-    headless_mode = bool(main_config.get("headless", False))  # From fEngine2.py v2
-
-    # Set headless mode environment variable if configured (from fEngine2.py v2)
-    # Note: Even if headless is False, xActions will auto-detect cloud environments
-    # and enable headless mode automatically for cloud execution
-    if headless_mode:
-        os.environ['FOXYIZ_HEADLESS'] = 'true'
-        print_status("Headless mode enabled", "INFO")
-    else:
-        # Explicitly disable headless mode to ensure browsers open (for local execution)
-        # Cloud environments will be auto-detected and headless mode enabled automatically
-        os.environ['FOXYIZ_HEADLESS'] = 'false'
-        print_status("Headless mode disabled - browsers will open (cloud auto-detection enabled)", "INFO")
-
-    # propagate debug mode into action layer
-    try:
-        if hasattr(xActions, 'set_debug_mode'):
-            xActions.set_debug_mode(debug_mode)
-    except Exception:
-        pass
-
-    # Dynamically adjust thread count based on CPU cores, capped at 4
-    max_threads = min(multiprocessing.cpu_count(), 4)
-    thread_count = int(main_config.get("thread_count", max_threads))
-    print_status(f"Using {thread_count} threads for parallel execution", "INFO")
-
-    start_time = time.time()
-
-    total_configs = len(configs)
-    suite_args = [
-        (i, total_configs, path, main_config, debug_mode, timeout, start_time)
-        for i, path in enumerate(configs, 1)
-    ]
-
-    # Parallel across YPADs when thread_count > 1 and multiple configs; print in config order (buffered per suite).
-    if total_configs > 1 and thread_count > 1:
-        workers = min(thread_count, total_configs)
-        heartbeat_interval = main_config.get("heartbeat_interval", 3)
+        if not os.environ.get('OPENAI_API_KEY'):
+            print_status('OPENAI_API_KEY is not set. Add it to .env at the project root.', 'ERROR')
+            return 1
         try:
-            heartbeat_interval = float(heartbeat_interval)
-        except (TypeError, ValueError):
-            heartbeat_interval = 3.0
-        if heartbeat_interval < 0.5:
-            heartbeat_interval = 0.5
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            futures_by_index = {
-                idx: executor.submit(run_ypad_suite_worker, suite_args[idx - 1])
-                for idx in range(1, total_configs + 1)
-            }
-            for idx in range(1, total_configs + 1):
-                config_path = suite_args[idx - 1][2]
-                suite_name = os.path.splitext(os.path.basename(config_path))[0]
-                _, captured = _wait_future_with_heartbeat(
-                    futures_by_index[idx],
-                    suite_name,
-                    idx,
-                    total_configs,
-                    heartbeat_interval,
-                )
-                sys.stdout.write(_normalize_buffered_output(captured))
-                sys.stdout.flush()
-    else:
-        for args in suite_args:
-            _execute_single_ypad_suite(*args)
+            run_ypad_build_from_md()
+        except Exception as e:
+            print_status(f'Build failed: {e}', 'ERROR')
+            return 1
+        return run_framework_execution(_default_main_config_path(), args.debug)
+
+    if args.analyze:
+        load_env()
+        if not os.environ.get('OPENAI_API_KEY'):
+            print_status('OPENAI_API_KEY is not set. Add it to .env at the project root.', 'ERROR')
+            return 1
+        try:
+            return run_ypad_analyze(args.analyze, args.config, args.debug)
+        except Exception as e:
+            print_status(f'Analyze failed: {e}', 'ERROR')
+            return 1
+
+    if args.heal:
+        load_env()
+        if not os.environ.get('OPENAI_API_KEY'):
+            print_status('OPENAI_API_KEY is not set. Add it to .env at the project root.', 'ERROR')
+            return 1
+        try:
+            return run_ypad_heal(args.heal, args.config, args.debug)
+        except Exception as e:
+            print_status(f'Heal failed: {e}', 'ERROR')
+            return 1
+
+    if args.loop:
+        load_env()
+        if not os.environ.get('OPENAI_API_KEY'):
+            print_status('OPENAI_API_KEY is not set. Add it to .env at the project root.', 'ERROR')
+            return 1
+        try:
+            return run_ypad_loop(args.loop, args.config, args.debug)
+        except Exception as e:
+            print_status(f'Loop failed: {e}', 'ERROR')
+            return 1
+
+    return run_framework_execution(args.config, args.debug)
 
 if __name__ == "__main__":
     # Multiprocessing support for Windows and PyInstaller
@@ -1475,7 +2354,9 @@ if __name__ == "__main__":
     # YPAD suites may run in parallel worker processes; output is replayed in config order.
     
     try:
-        main()
+        rc = main()
+        if rc:
+            sys.exit(rc)
     except KeyboardInterrupt:
         print_status("Execution interrupted by user.", "WARNING")
         try:

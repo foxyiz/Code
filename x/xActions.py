@@ -2355,3 +2355,96 @@ def runAction(aT, aName, aIn, aOut=None, aExpected=None, plan_id=None, design_id
     except Exception:
         pass
     return vRes, str(vOut), time_taken
+
+
+# --- YPAD LLM build (used by fEngine --build) ---------------------------------
+
+def ypad_build_llm_context(project_root):
+    """
+    Load xCapa.csv and the reference Mix YPAD CSVs so an LLM can generate valid YPAD files.
+    Returns dict with text blobs and design column names (D1, D2, ...).
+    """
+    import csv
+
+    capa_path = os.path.join(project_root, 'x', 'xCapa.csv')
+    mix_dir = os.path.join(project_root, 'y', 'Mix')
+    if not os.path.isfile(capa_path):
+        raise FileNotFoundError(f"Missing capability file: {capa_path}")
+    if not os.path.isdir(mix_dir):
+        raise FileNotFoundError(f"Missing reference YPAD directory: {mix_dir}")
+
+    with open(capa_path, 'r', encoding='utf-8') as f:
+        xcapa_csv = f.read()
+
+    out = {'xcapa_csv': xcapa_csv}
+    for fname in ('y1Plans.csv', 'y2Actions.csv', 'y3Designs.csv'):
+        p = os.path.join(mix_dir, fname)
+        if not os.path.isfile(p):
+            raise FileNotFoundError(f"Missing reference file: {p}")
+        with open(p, 'r', encoding='utf-8') as f:
+            out[f'mix_{fname}'] = f.read()
+
+    y3_path = os.path.join(mix_dir, 'y3Designs.csv')
+    with open(y3_path, 'r', encoding='utf-8') as f:
+        header = next(csv.reader(f))
+    design_cols = [c.strip() for c in header if re.match(r'^D\d+$', c.strip())]
+    if not design_cols:
+        raise ValueError(f"No D1,D2,... columns found in {y3_path}")
+    out['design_columns'] = design_cols
+    out['design_column_count'] = len(design_cols)
+    return out
+
+
+def ypad_build_module_to_action_type(module_name):
+    """xCapa Module column (e.g. UI, API) maps to ActionType (xUI, xAPI)."""
+    m = (module_name or '').strip()
+    if not m:
+        return None
+    return 'x' + m
+
+
+def ypad_build_allowed_actions_from_capa(xcapa_csv_text):
+    """
+    Parse xCapa.csv text into { ActionType: set(ActionName) }.
+    """
+    import csv
+    from io import StringIO
+
+    allowed = {}
+    reader = csv.DictReader(StringIO(xcapa_csv_text))
+    for row in reader:
+        mod = row.get('Module', '').strip()
+        act = row.get('Action', '').strip()
+        if not mod or not act:
+            continue
+        at = ypad_build_module_to_action_type(mod)
+        if not at:
+            continue
+        allowed.setdefault(at, set()).add(act)
+    return allowed
+
+
+def ypad_build_validate_y2_against_capa(df_y2, allowed_by_type):
+    """
+    Ensure each y2 row uses ActionName that exists in xCapa for that ActionType.
+    Skips validation for xReuse (plan id) and xCustom.
+    Returns (True, None) or (False, error_message).
+    """
+    if df_y2 is None or df_y2.empty:
+        return False, 'y2 actions are empty'
+
+    for col in ('ActionType', 'ActionName'):
+        if col not in df_y2.columns:
+            return False, f"y2 missing required column: {col}"
+
+    for idx, row in df_y2.iterrows():
+        at = str(row['ActionType']).strip()
+        an = str(row['ActionName']).strip()
+        if at in ('xReuse', 'xCustom'):
+            continue
+        names = allowed_by_type.get(at)
+        if not names:
+            return False, f"Unknown ActionType '{at}' at y2 row {idx + 2}"
+        if an not in names:
+            return False, f"Unknown action '{an}' for {at} at y2 row {idx + 2} (not in xCapa.csv)"
+    return True, None

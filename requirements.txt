@@ -5,3 +5,4 @@ webdriver-manager
 pyinstaller
 openpyxl
 python-dotenv
+openai
