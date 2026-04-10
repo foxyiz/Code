@@ -6,13 +6,25 @@ import json
 import requests
 import logging
 import shutil
-import smtplib
-import imaplib
-import sqlite3
+try:
+    import smtplib
+except ImportError:
+    smtplib = None
+try:
+    import imaplib
+except ImportError:
+    imaplib = None
+try:
+    import sqlite3
+except ImportError:
+    sqlite3 = None
 import socket
 import tempfile
 import threading
-import webbrowser
+try:
+    import webbrowser
+except ImportError:
+    webbrowser = None
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -1475,6 +1487,8 @@ class EmailActionHandler(ActionHandler):
     
     def xEmailSend(self, aIn):
         """Send email with attachments using SMTP."""
+        if smtplib is None:
+            raise RuntimeError("xEmailSend unavailable: Python module 'smtplib' is not available in this runtime.")
         parts = self.validate_input(aIn).split(';')
         if len(parts) < 7:
             raise ValueError(f"Invalid input for xEmailSend: {aIn}. Expected 'smtp_server;port;username;password;to_email;subject;body;[attachment_path]'")
@@ -1519,6 +1533,8 @@ class EmailActionHandler(ActionHandler):
     
     def xEmailRead(self, aIn):
         """Read emails from inbox with filtering."""
+        if imaplib is None:
+            raise RuntimeError("xEmailRead unavailable: Python module 'imaplib' is not available in this runtime.")
         parts = self.validate_input(aIn).split(';')
         if len(parts) < 4:
             raise ValueError(f"Invalid input for xEmailRead: {aIn}. Expected 'imap_server;port;username;password;[subject_filter];[max_count]'")
@@ -1560,6 +1576,8 @@ class DBActionHandler(ActionHandler):
     
     def xDBConnect(self, aIn):
         """Connect to database (SQLite, MySQL, PostgreSQL)."""
+        if sqlite3 is None:
+            raise RuntimeError("xDBConnect unavailable: Python module 'sqlite3' is not available in this runtime.")
         parts = self.validate_input(aIn).split(';')
         if len(parts) != 2:
             raise ValueError(f"Invalid input for xDBConnect: {aIn}. Expected 'db_type;connection_string'")
@@ -2176,6 +2194,8 @@ class PhoneActionHandler(ActionHandler):
     
     def xMakeCall(self, aIn):
         """Make a phone call by opening tel: link."""
+        if webbrowser is None:
+            raise RuntimeError("xMakeCall unavailable: Python module 'webbrowser' is not available in this runtime.")
         parts = self.validate_input(aIn).split(';')
         if len(parts) < 1:
             raise ValueError(f"Invalid input for xMakeCall: {aIn}. Expected 'phone_number'")
@@ -2209,6 +2229,8 @@ class PhoneActionHandler(ActionHandler):
     
     def xSendSMS(self, aIn):
         """Send SMS message by opening sms: link."""
+        if webbrowser is None:
+            raise RuntimeError("xSendSMS unavailable: Python module 'webbrowser' is not available in this runtime.")
         parts = self.validate_input(aIn).split(';')
         if len(parts) < 1:
             raise ValueError(f"Invalid input for xSendSMS: {aIn}. Expected 'phone_number;[message]'")

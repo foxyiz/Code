@@ -227,6 +227,62 @@ def _substitute_env_in_value(data_value):
         s = s.replace(str(key), str(val))
     return s
 
+def _default_main_config_path():
+    """Default path to the main JSON config.
+
+    Development: repo layout has ``f/fStart.json`` relative to project root.
+
+    Frozen (PyInstaller): the exe is often placed in ``f/`` next to ``fStart.json``.
+    Using ``f/fStart.json`` relative to the exe dir would incorrectly resolve to
+    ``f/f/fStart.json``. Prefer ``fStart.json`` beside the executable, or
+    ``f/fStart.json`` when the exe lives at project root and config is under ``f/``.
+    """
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.abspath(os.path.dirname(sys.executable))
+        beside_exe = os.path.join(exe_dir, 'fStart.json')
+        under_f = os.path.join(exe_dir, 'f', 'fStart.json')
+        if os.path.isfile(beside_exe):
+            return 'fStart.json'
+        if os.path.isfile(under_f):
+            return 'f/fStart.json'
+        return 'fStart.json'
+    return 'f/fStart.json'
+
+
+def _frozen_data_search_bases():
+    """Directories to search for user data (y/, z/ beside exe, etc.) when running frozen.
+
+    If the exe lives in ``f/Foxyiz.exe``, repo data usually sits one level up (``../y/``),
+    not under ``f/y/``. Try exe directory first, then its parent.
+    """
+    exe_dir = os.path.abspath(os.path.dirname(sys.executable))
+    bases = [exe_dir]
+    parent = os.path.dirname(exe_dir)
+    if parent and parent != exe_dir:
+        bases.append(parent)
+    return bases
+
+
+def _results_z_root():
+    """Absolute path to the ``z`` folder where run outputs are written.
+
+    Development: ``<project root>/z`` so results do not depend on current working directory.
+
+    Frozen: if ``y/`` sits next to the exe, use ``<exe_dir>/z``; if ``y/`` is only under the
+    parent (exe inside ``f/``), use ``<parent>/z`` so results align with the same layout as
+    ``python f/fEngine.py`` from the repo.
+    """
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.abspath(os.path.dirname(sys.executable))
+        parent = os.path.dirname(exe_dir)
+        if os.path.isdir(os.path.join(exe_dir, 'y')):
+            return os.path.join(exe_dir, 'z')
+        if parent and os.path.isdir(os.path.join(parent, 'y')):
+            return os.path.join(parent, 'z')
+        return os.path.join(exe_dir, 'z')
+    return os.path.join(PROJECT_ROOT, 'z')
+
+
 def _resource_path(relative_path):
     """Get absolute path to resource, works for dev and PyInstaller."""
     # If running as PyInstaller executable
@@ -238,9 +294,12 @@ def _resource_path(relative_path):
                 return bundled_path
         except Exception:
             pass
-        # Fall back to exe directory for non-bundled files (like y/ directory)
-        exe_dir = os.path.abspath(os.path.dirname(sys.executable))
-        return os.path.abspath(os.path.join(exe_dir, relative_path))
+        # Non-bundled files (y/, optional z/): exe dir, then parent (exe inside f/)
+        for base in _frozen_data_search_bases():
+            candidate = os.path.abspath(os.path.join(base, relative_path))
+            if os.path.exists(candidate):
+                return candidate
+        return os.path.abspath(os.path.join(_frozen_data_search_bases()[0], relative_path))
     else:
         # Development mode: use script directory
         base_path = PROJECT_ROOT
@@ -1026,7 +1085,10 @@ def _execute_single_ypad_suite(config_index, total_configs, config_path, main_co
         print_status(f"yPAD config not found: {config_path}", "ERROR")
         return
     ypad_name = os.path.splitext(os.path.basename(config_path))[0]
-    output_dir = os.path.join("z", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{ypad_name}")
+    output_dir = os.path.join(
+        _results_z_root(),
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{ypad_name}",
+    )
     os.makedirs(output_dir, exist_ok=True)
     if debug_mode:
         os.makedirs(os.path.join(output_dir, "_debug"), exist_ok=True)
@@ -1290,7 +1352,12 @@ def main():
         pass  # Don't fail if cleanup fails
     
     parser = argparse.ArgumentParser(description="FoXYiZ Test Framework")
-    parser.add_argument('--config', required=False, default='f/fStart.json', help="Path to the main config JSON file")
+    parser.add_argument(
+        '--config',
+        required=False,
+        default=_default_main_config_path(),
+        help="Path to the main config JSON file (default: f/fStart.json in dev; fStart.json or f/fStart.json next to exe when frozen)",
+    )
     parser.add_argument('--debug', action='store_true', help="Enable verbose debug logging and error artifacts")
     args = parser.parse_args()
 
@@ -1312,7 +1379,10 @@ def main():
         main_config = load_config(args.config)
     except FileNotFoundError:
         print_status(f"Main config not found: {args.config}", "ERROR")
-        print_status("Ensure 'f/fStart.json' is present (or pass --config).", "ERROR")
+        print_status(
+            "Ensure fStart.json is next to the executable, or f/fStart.json if the exe is at project root (or pass --config).",
+            "ERROR",
+        )
         return 2
     configs = main_config.get("configs", [])
     timeout = main_config.get("timeout", 6)
