@@ -20,8 +20,33 @@ try:
 except ImportError:
     OpenAI = None
 
-# Root directory for development mode when engine lives under f/
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+def _detect_project_root():
+    """Return runtime project root for dev and frozen executable modes."""
+    dev_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if not getattr(sys, 'frozen', False):
+        return dev_root
+
+    exe_dir = os.path.abspath(os.path.dirname(sys.executable))
+    parent = os.path.dirname(exe_dir)
+    candidates = [exe_dir]
+    if parent and parent != exe_dir:
+        candidates.append(parent)
+
+    # Prefer a directory that clearly looks like the project root.
+    for cand in candidates:
+        if os.path.isfile(os.path.join(cand, 'BUILD.md')):
+            return cand
+        if all(os.path.isdir(os.path.join(cand, d)) for d in ('f', 'x', 'y')):
+            return cand
+
+    # Common packaged layout: executable inside <root>/f/Foxyiz.exe
+    if os.path.basename(exe_dir).lower() == 'f' and parent and parent != exe_dir:
+        return parent
+
+    return exe_dir
+
+
+PROJECT_ROOT = _detect_project_root()
 try:
     from dotenv import load_dotenv, dotenv_values
 except ImportError:
@@ -311,6 +336,36 @@ def _resource_path(relative_path):
         # Development mode: use script directory
         base_path = PROJECT_ROOT
         return os.path.abspath(os.path.join(base_path, relative_path))
+
+
+def _resolve_cli_relative_path(slash_path):
+    """Resolve a path relative to project data (y/, z/). Same search order as _resource_path for non-bundled files."""
+    parts = [p for p in str(slash_path).replace("\\", "/").split("/") if p and p != "."]
+    if not parts:
+        raise ValueError("Invalid YPAD path")
+    if getattr(sys, "frozen", False):
+        for base in _frozen_data_search_bases():
+            cand = os.path.abspath(os.path.join(base, *parts))
+            if os.path.exists(cand):
+                return cand
+        return os.path.abspath(os.path.join(_frozen_data_search_bases()[0], *parts))
+    return os.path.abspath(os.path.join(PROJECT_ROOT, *parts))
+
+
+def _data_root_containing(abs_path):
+    """Project root or frozen exe dir/parent that contains abs_path (for CLI path normalization)."""
+    abs_path = os.path.abspath(abs_path)
+    if getattr(sys, "frozen", False):
+        for base in _frozen_data_search_bases():
+            b = os.path.abspath(base)
+            try:
+                if os.path.commonpath([b, abs_path]) == b:
+                    return b
+            except ValueError:
+                continue
+        return _frozen_data_search_bases()[0]
+    return PROJECT_ROOT
+
 
 def load_config(config_path):
     """Load configuration from a JSON file."""
@@ -1575,21 +1630,24 @@ def _parse_ypad_cli_path(arg):
     if not arg or not str(arg).strip():
         raise ValueError("Missing path after --analyze, --heal, or --loop (e.g. y/Cric/)")
     s = str(arg).strip().strip('"').rstrip("/\\").replace("\\", "/")
-    # Resolve so y/<name> works even when cwd is not the project root
+    # Resolve so y/<name> works even when cwd is not the project root. Frozen exe in f/ uses
+    # ../y/ like dev — do not join only PROJECT_ROOT (bundle path), match _resource_path bases.
     if os.path.isabs(s) or (len(s) > 1 and s[1] == ":"):
         _cand = os.path.abspath(s.replace("/", os.sep))
     else:
-        _cand = os.path.join(PROJECT_ROOT, *s.split("/"))
+        _cand = _resolve_cli_relative_path(s)
     if os.path.isdir(_cand):
+        root = _data_root_containing(_cand)
         try:
-            s = os.path.relpath(os.path.abspath(_cand), PROJECT_ROOT).replace("\\", "/")
+            s = os.path.relpath(os.path.abspath(_cand), root).replace("\\", "/")
         except ValueError:
             pass
     if s.lower().endswith(".json"):
         rel = s
         base = os.path.splitext(os.path.basename(rel))[0]
-        ydir = os.path.join(PROJECT_ROOT, "y", base)
-        if not os.path.isfile(_resource_path(rel)):
+        json_abs = _resource_path(rel)
+        ydir = os.path.join(os.path.dirname(json_abs), base)
+        if not os.path.isfile(json_abs):
             raise FileNotFoundError(f"YPAD config not found: {rel}")
         if not os.path.isdir(ydir):
             raise FileNotFoundError(f"YPAD folder not found: y/{base}/")
@@ -1607,7 +1665,7 @@ def _parse_ypad_cli_path(arg):
         suite_name = parts[1]
     json_rel = f"y/{suite_name}.json"
     json_abs = _resource_path(json_rel)
-    ydir = os.path.join(PROJECT_ROOT, "y", suite_name)
+    ydir = os.path.join(os.path.dirname(json_abs), suite_name)
     if not os.path.isdir(ydir):
         raise FileNotFoundError(f"YPAD folder not found: y/{suite_name}/")
     if not os.path.isfile(json_abs):
