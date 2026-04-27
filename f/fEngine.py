@@ -2184,7 +2184,7 @@ def run_ypad_loop(ypad_path_arg, main_config_path, debug_from_cli=False):
     return 1
 
 
-def run_framework_execution(config_path, debug_from_cli=False):
+def run_framework_execution(config_path, debug_from_cli=False, ypad_path=None):
     """Load main config and run all YPAD suites. Returns 0 on success, 2 if config missing."""
     print_header("FoXYiZ Test Framework")
     print_status("Loading configuration...", "INFO")
@@ -2205,7 +2205,12 @@ def run_framework_execution(config_path, debug_from_cli=False):
             "ERROR",
         )
         return 2
+    
     configs = main_config.get("configs", [])
+    if ypad_path:
+        configs = [ypad_path]
+        print_status(f"Overriding configs from fStart.json, directly running: {ypad_path}", "INFO")
+
     timeout = main_config.get("timeout", 6)
     debug_mode = bool(debug_from_cli or main_config.get("debug", False))
     headless_mode = bool(main_config.get("headless", False))
@@ -2311,6 +2316,12 @@ def main():
         default=_default_main_config_path(),
         help="Path to the main config JSON file (default: f/fStart.json in dev; fStart.json or f/fStart.json next to exe when frozen)",
     )
+    parser.add_argument(
+        '--ypad',
+        metavar='YPAD_JSON',
+        default=None,
+        help="Path to a specific YPAD JSON config to run directly, bypassing configs in fStart.json",
+    )
     parser.add_argument('--debug', action='store_true', help="Enable verbose debug logging and error artifacts")
     parser.add_argument(
         '--build',
@@ -2352,7 +2363,7 @@ def main():
         except Exception as e:
             print_status(f'Build failed: {e}', 'ERROR')
             return 1
-        return run_framework_execution(_default_main_config_path(), args.debug)
+        return run_framework_execution(_default_main_config_path(), args.debug, args.ypad)
 
     if args.analyze:
         load_env()
@@ -2387,7 +2398,7 @@ def main():
             print_status(f'Loop failed: {e}', 'ERROR')
             return 1
 
-    return run_framework_execution(args.config, args.debug)
+    return run_framework_execution(args.config, args.debug, args.ypad)
 
 if __name__ == "__main__":
     # Multiprocessing support for Windows and PyInstaller
